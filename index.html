@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <title>Opal</title>
+
+  <link rel="stylesheet" href="css/styles.css" type="text/css" media="screen" charset="utf-8">
+</head>
+<body>
+  <div class="content">
+    <header>
+      <nav>
+        <ul>
+          <li><a href="#">Homepage</a></li>
+        </ul>
+      </nav>
+    </header>
+    <h1 id='opal'>Opal</h1>
+
+<p><strong>Homepage</strong>: <a href='http://adambeynon.github.com/opal'>http://adambeynon.github.com/opal</a> <strong>Github</strong>: <a href='http://github.com/adambeynon/opal'>http://github.com/adambeynon/opal</a></p>
+
+<h2 id='overview'>Overview</h2>
+
+<p>Opal is a partial implementation of ruby designed to run in any javascript environment. The runtime is written in javascript, with all core libraries written directly in ruby with inline javascript to make them as fast as possible.</p>
+
+<pre><code>foo = Element.find_by_id &quot;foo&quot;
+
+foo.children.each do |c|
+  c.add_class &quot;blue&quot;
+end
+
+foo.click { puts &quot;foo was clicked!&quot; }</code></pre>
+
+<p>Wherever possible ruby objects are mapped directly onto their native javascript counterparts to speed up the generated code and to improve interopability with existing javascript libraries.</p>
+
+<p>The opal compiler is a source-to-source compiler which outputs javascript which can then run on the core runtime.</p>
+
+<p>Opal does not aim to be 100% comaptible with other ruby implementations, but does so where the generated code can be efficient on all modern web browsers - including older versions of IE and mobile devices.</p>
+
+<h2 id='installing_opal'>Installing Opal</h2>
+
+<p>Install the gem:</p>
+
+<pre><code>$ gem install opal</code></pre>
+
+<p>The <code>opal</code> command should then be available. To run the simple repl use:</p>
+
+<pre><code>opal</code></pre>
+
+<h2 id='usage'>Usage</h2>
+
+<p>The quickest way to get opal running is to use the project generator. Simply run the command:</p>
+
+<pre><code>opal init my_project</code></pre>
+
+<p>replacing &#8220;my_project&#8221; with any name. This will make a &#8220;my_project&#8221; directory with a Rakefile, html document and libs needed for running opal in the browser.</p>
+
+<h3 id='using_opal_in_the_browser'>Using opal in the browser</h3>
+
+<p>Opal runs directly in the browser, and is distributed as two files, <code>opal.js</code> and <code>opal-parser.js</code>. To just run precompiled code, just the <code>opal.js</code> runtime is required which includes the runtime and opals implementation of the ruby core library (pre compiled).</p>
+
+<p>To evaluate ruby code directly in the browser, <code>opal-parser.js</code> is also required which will also load any ruby code found in script tags.</p>
+
+<h3 id='bundle'>Bundle</h3>
+
+<p>The Rakefile has a task to build your ruby project, so just run:</p>
+
+<pre><code>rake bundle</code></pre>
+
+<p>Open <code>index.html</code> in a browser, and now it should run. Edit, build and run to suit.</p>
+
+<h2 id='differences_from_ruby'>Differences from ruby</h2>
+
+<h3 id='optional_method_missing'>Optional method_missing</h3>
+
+<p>To optimize method dispatch, <code>method_missing</code> is, by default, turned off in opal. It can easily be enabled by passing <code>:method_missing =&gt; true</code> in the parser options.</p>
+
+<h3 id='immutable_strings_and_removed_symbols'>Immutable strings and removed symbols</h3>
+
+<p>All strings in opal are immutable to make them easier to map onto javascript strings. In opal a ruby string compiles directly into a js string without a wrapper so that they can be passed back between code bases easily. Also, symbol syntax is maintained, but all symbols just compile into javascript strings. The <code>Symbol</code> class is also therefore removed.</p>
+
+<h3 id='unified_numeric_class'>Unified Numeric class</h3>
+
+<p>All numbers in opal are members of the <code>Numeric</code> class. The <code>Integer</code> and <code>Float</code> classes are removed.</p>
+
+<h3 id='unified_boolean_class'>Unified Boolean class</h3>
+
+<p>Both <code>true</code> and <code>false</code> compile into their native javascript counterparts which means that they both become instances of the <code>Boolean</code> class and opal removes the <code>TrueClass</code> and <code>FalseClass</code>.</p>
+  </div>
+</body>
+</html>
