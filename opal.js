@@ -1,11 +1,10 @@
 /*!
  * opal v0.3.15
- * http://opalscript.org
+ * http://adambeynon.github.com/opal
  *
- * Copyright 2011, Adam Beynon
+ * Copyright 2012, Adam Beynon
  * Released under the MIT license
  */
-
 (function(undefined) {
 var opal = this.opal = {};
 
@@ -211,17 +210,6 @@ var define_method = opal.defn = function(klass, id, body) {
     klass.$bridge_prototype[id] = body;
   }
 
-  // Object donates all methods to bridged prototypes as well
-  if (klass === RubyObject) {
-    var bridged = bridged_classes;
-
-    for (var i = 0, ii = bridged.length; i < ii; i++) {
-      // do not overwrite bridged impelementation
-      if (!bridged[i][id]) {
-        bridged[i][id] = body;
-      }
-    }
-  }
 
   return nil;
 }
@@ -363,24 +351,6 @@ opal.klass = function(base, superklass, id, body, type) {
   }
 
   return body.call(klass);
-};
-
-// Donate methods from the given module into its includees
-opal.donate = function(module, methods) {
-  var included_in = module.$included_in, includee, method, table = module.$proto, dest;
-  
-  if (included_in) {
-    for (var i = 0, length = included_in.length; i < length; i++) {
-      includee = included_in[i];
-      dest = includee.$proto;
-      for (var j = 0, jj = methods.length; j < jj; j++) {
-        method = methods[j];
-        // if (!dest[method]) {
-          dest[method] = table[method];
-        // }
-      }
-    }
-  }
 };
 
 opal.slice = $slice;
@@ -645,8 +615,6 @@ function make_singleton_class(obj) {
   return klass;
 }
 
-var bridged_classes = []
-
 function bridge_class(constructor, flags, id) {
   var klass     = define_class(RubyObject, id, RubyObject),
       prototype = constructor.prototype;
@@ -654,7 +622,7 @@ function bridge_class(constructor, flags, id) {
   klass.$allocator = constructor;
   klass.$proto = prototype;
 
-  bridged_classes.push(prototype);
+  bridged_classes.push(klass);
 
   prototype.$klass = klass;
   prototype.$flags = flags;
@@ -928,6 +896,9 @@ opal.Object = RubyObject;
 opal.Module = RubyModule;
 opal.Class  = RubyClass;
 
+// make object act like a module
+var bridged_classes = RubyObject.$included_in = [];
+
 // Top level Object scope (used by object and top_self).
 var top_const_alloc     = function(){};
 var top_const_scope     = top_const_alloc.prototype;
@@ -949,6 +920,28 @@ RubyObject.$const.BasicObject = RubyObject;
 RubyObject.$const.Object = RubyObject;
 RubyObject.$const.Module = RubyModule;
 RubyObject.$const.Class = RubyClass;
+
+RubyModule.$allocator.prototype.$donate = function(methods) {
+  var included_in = this.$included_in, includee, method, table = this.$proto, dest;
+
+  if (included_in) {
+    for (var i = 0, length = included_in.length; i < length; i++) {
+      includee = included_in[i];
+      dest = includee.$proto;
+      for (var j = 0, jj = methods.length; j < jj; j++) {
+        method = methods[j];
+        // if (!dest[method]) {
+          dest[method] = table[method];
+        // }
+      }
+      // if our includee is itself included in another module/class then it
+      // should also donate its new methods
+      if (includee.$included_in) {
+        includee.$donate(methods);
+      }
+    }
+  }
+};
 
 var top_self = opal.top = new RubyObject.$allocator();
 
@@ -994,7 +987,7 @@ var breaker = opal.breaker  = new Error('unexpected break');
 var method_names = {'==': 'm$eq$', '===': 'm$eqq$', '[]': 'm$aref$', '[]=': 'm$aset$', '~': 'm$tild$', '<=>': 'm$cmp$', '=~': 'm$match$', '+': 'm$plus$', '-': 'm$minus$', '/': 'm$div$', '*': 'm$mul$', '<': 'm$lt$', '<=': 'm$le$', '>': 'm$gt$', '>=': 'm$ge$', '<<': 'm$lshft$', '>>': 'm$rshft$', '|': 'm$or$', '&': 'm$and$', '^': 'm$xor$', '+@': 'm$uplus$', '-@': 'm$uminus$', '%': 'm$mod$', '**': 'm$pow$'};
 var reverse_method_names = {}; for (var id in method_names) {
 reverse_method_names[method_names[id]] = id;}
-(function($opal) {var nil = $opal.nil, $const = $opal.constants, _a, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $defn = $opal.defn, $defs = $opal.defs, $const_get = $opal.const_get, $slice = $opal.slice, $zuper = $opal.zuper;
+(function($opal) {var nil = $opal.nil, $const = $opal.constants, _a, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $defn = $opal.defn, $defs = $opal.defs, $const_get = $opal.const_get, $slice = $opal.slice;
 ($opal.gvars["$LOAD_PATH"] = ($opal.gvars["$:"] = LOADER_PATHS));
 
 
@@ -1454,18 +1447,18 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
 
   $proto.m$to_s = function($yield) {
 
-    return inspect_object(this);};;$opal.donate(this, ["m$match$", "m$eqq$", "m$Object", "m$Array", "m$at_exit", "m$class", "m$define_singleton_method", "m$equal$p", "m$extend", "m$hash", "m$inspect", "m$instance_of$p", "m$instance_variable_defined$p", "m$instance_variable_get", "m$instance_variable_set", "m$instance_variables", "m$is_a$p", "m$lambda", "m$loop", "m$nil$p", "m$object_id", "m$print", "m$proc", "m$puts", "m$raise", "m$rand", "m$require", "m$respond_to$p", "m$singleton_class", "m$tap", "m$to_s"]);
+    return inspect_object(this);};;this.$donate(["m$match$", "m$eqq$", "m$Object", "m$Array", "m$at_exit", "m$class", "m$define_singleton_method", "m$equal$p", "m$extend", "m$hash", "m$inspect", "m$instance_of$p", "m$instance_variable_defined$p", "m$instance_variable_get", "m$instance_variable_set", "m$instance_variables", "m$is_a$p", "m$lambda", "m$loop", "m$nil$p", "m$object_id", "m$print", "m$proc", "m$puts", "m$raise", "m$rand", "m$require", "m$respond_to$p", "m$singleton_class", "m$tap", "m$to_s"]);
 }, 1);
 
 $klass(this, nil, "BasicObject", function() {var $const = this.$const, $proto = this.$proto; 
-  $defn(this, 'm$initialize', function($yield) {
-    return nil;});
+  $proto.m$initialize = function($yield) {
+    return nil;};
 
-  $defn(this, 'm$eq$', function($yield, other) {
+  $proto.m$eq$ = function($yield, other) {
 
-    return this === other;});
+    return this === other;};
 
-  $defn(this, 'm$__send__', function($yield, symbol, args) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;args = $slice.call(arguments, 2);
+  $proto.m$__send__ = function($yield, symbol, args) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;args = $slice.call(arguments, 2);
 
     
       var meth = this[mid_to_jsid(symbol)];
@@ -1478,14 +1471,14 @@ $klass(this, nil, "BasicObject", function() {var $const = this.$const, $proto = 
       else {
         throw new Error("method missing yielder for " + symbol + " in __send__");
       }
-    });
+    };
 
   $opal.alias(this, "send", "__send__");
 
   $opal.alias(this, "eql?", "==");
   $opal.alias(this, "equal?", "==");
 
-  $defn(this, 'm$instance_eval', function($yield, string) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (string === undefined) { string = nil; }
+  $proto.m$instance_eval = function($yield, string) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (string === undefined) { string = nil; }
 
     
       if (block === nil) {
@@ -1493,9 +1486,9 @@ $klass(this, nil, "BasicObject", function() {var $const = this.$const, $proto = 
       }
 
       return block.call(this, null, this);
-    });
+    };
 
-  $defn(this, 'm$instance_exec', function($yield, args) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;args = $slice.call(arguments, 1);
+  $proto.m$instance_exec = function($yield, args) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;args = $slice.call(arguments, 1);
 
     
       if (block === nil) {
@@ -1505,31 +1498,31 @@ $klass(this, nil, "BasicObject", function() {var $const = this.$const, $proto = 
       args.unshift(null);
 
       return block.apply(this, args);
-    });
+    };
 
-  $defn(this, 'm$method_missing', function($yield, symbol, args) {args = $slice.call(arguments, 2);
+  $proto.m$method_missing = function($yield, symbol, args) {args = $slice.call(arguments, 2);
 
-    return raise(RubyNoMethodError, 'undefined method `' + symbol + '` for ' + this.m$inspect());});
+    return raise(RubyNoMethodError, 'undefined method `' + symbol + '` for ' + this.m$inspect());};
 
-  $defn(this, 'm$singleton_method_added', function($yield, symbol) {
+  $proto.m$singleton_method_added = function($yield, symbol) {
 
-    return nil;});
+    return nil;};
 
-  $defn(this, 'm$singleton_method_removed', function($yield, symbol) {
+  $proto.m$singleton_method_removed = function($yield, symbol) {
 
-    return nil;});
+    return nil;};
 
-  return $defn(this, 'm$singleton_method_undefined', function($yield, symbol) {
+  $proto.m$singleton_method_undefined = function($yield, symbol) {
 
-    return nil;});
+    return nil;};;this.$donate(["m$initialize", "m$eq$", "m$__send__", "m$instance_eval", "m$instance_exec", "m$method_missing", "m$singleton_method_added", "m$singleton_method_removed", "m$singleton_method_undefined"]);
 }, 0);
 
 $klass(this, nil, "Object", function() {var $const = this.$const, $proto = this.$proto; 
 
 
-  this.m$include(null, $const.Kernel);$defn(this, 'm$methods', function($yield) {
+  this.m$include(null, $const.Kernel);$proto.m$methods = function($yield) {
 
-    return this.$klass.$methods;});
+    return this.$klass.$methods;};
 
   this.m$alias_method(null, "private_methods", "methods");
 
@@ -1537,13 +1530,13 @@ $klass(this, nil, "Object", function() {var $const = this.$const, $proto = this.
 
   this.m$alias_method(null, "public_methods", "methods");
 
-  $defn(this, 'm$singleton_methods', function($yield) {
+  $proto.m$singleton_methods = function($yield) {
 
-    return this.m$raise(null, $const.NotImplementedError, "Object#singleton_methods not yet implemented");});
+    return this.m$raise(null, $const.NotImplementedError, "Object#singleton_methods not yet implemented");};
 
-  return $defn(this, 'm$to_native', function($yield) {
+  $proto.m$to_native = function($yield) {
 
-    return this.m$raise(null, $const.TypeError, "no specialized #to_native has been implemented");});
+    return this.m$raise(null, $const.TypeError, "no specialized #to_native has been implemented");};;this.$donate(["m$methods", "m$singleton_methods", "m$to_native"]);
 }, 0);
 
 $defs(this, 'm$to_s', function(
@@ -1651,23 +1644,23 @@ $klass(this, nil, "Native", function() {var $const = this.$const, $proto = this.
   $klass(this, nil, "Object", function() {var $const = this.$const, $proto = this.$proto; 
 
 
-    this.m$include(null, $const.Native);$defn(this, 'm$aref$', function($yield, name) {this['native'] == null && (this['native'] = nil);
+    this.m$include(null, $const.Native);$proto.m$aref$ = function($yield, name) {this['native'] == null && (this['native'] = nil);
 
-      return this['native'][name];});
+      return this['native'][name];};
 
-    $defn(this, 'm$aset$', function($yield, name, value) {this['native'] == null && (this['native'] = nil);
+    $proto.m$aset$ = function($yield, name, value) {this['native'] == null && (this['native'] = nil);
 
-      return this['native'][name] = value;});
+      return this['native'][name] = value;};
 
-    $defn(this, 'm$nil$p', function($yield) {this['native'] == null && (this['native'] = nil);
+    $proto.m$nil$p = function($yield) {this['native'] == null && (this['native'] = nil);
 
-      return this['native'] === null || this['native'] === undefined;});
+      return this['native'] === null || this['native'] === undefined;};
 
-    return $defn(this, 'm$method_missing', function($yield, name, args) {var _a, _b; this['native'] == null && (this['native'] = nil);args = $slice.call(arguments, 2);
-      if ((_a = (typeof this['native'][name] === 'function')) !== false && _a !== nil) {} else {return $zuper(arguments.callee, this, [])
+    $proto.m$method_missing = function($yield, name, args) {var _a, _b; this['native'] == null && (this['native'] = nil);args = $slice.call(arguments, 2);
+      if ((_a = (typeof this['native'][name] === 'function')) !== false && _a !== nil) {} else {return $opal.zuper(arguments.callee, this, [])
 
       };return (_a=this).m$__native_send__.apply(_a, [null, name].concat(
-      args));});
+      args));};;this.$donate(["m$aref$", "m$aset$", "m$nil$p", "m$method_missing"]);
   }, 0);
 
   $defs(this, 'm$included', function($yield, klass) {
@@ -1695,7 +1688,7 @@ $klass(this, nil, "Native", function() {var $const = this.$const, $proto = this.
     };return this['native'][name].apply(this['native'], args);
   };
 
-  this.m$alias_method(null, "__native_send__", "native_send");;$opal.donate(this, ["m$initialize", "m$to_native", "m$native_send"]);
+  this.m$alias_method(null, "__native_send__", "native_send");;this.$donate(["m$initialize", "m$to_native", "m$native_send"]);
 }, 1);
 
 $klass(this, nil, "Enumerable", function() {var $const = this.$const, $proto = this.$proto; 
@@ -2012,7 +2005,7 @@ $klass(this, nil, "Enumerable", function() {var $const = this.$const, $proto = t
       return result;
     };
 
-  this.m$alias_method(null, "to_a", "entries");;$opal.donate(this, ["m$all$p", "m$any$p", "m$collect", "m$count", "m$detect", "m$drop", "m$drop_while", "m$each_with_index", "m$entries", "m$find_index", "m$first", "m$grep"]);
+  this.m$alias_method(null, "to_a", "entries");;this.$donate(["m$all$p", "m$any$p", "m$collect", "m$count", "m$detect", "m$drop", "m$drop_while", "m$each_with_index", "m$entries", "m$find_index", "m$first", "m$grep"]);
 }, 1);
 
 $klass(this, nil, "Comparable", function() {var $const = this.$const, $proto = this.$proto; 
@@ -2038,7 +2031,7 @@ $klass(this, nil, "Comparable", function() {var $const = this.$const, $proto = t
 
   $proto.m$between$p = function($yield, min, max) {var _a, _b, _c; 
 
-    return (_a = (_b = this, _c = min, typeof(_b) === 'number' ? _b > _c : _b.m$gt$(null, _c)) ? (_c = this, _b = max, typeof(_c) === 'number' ? _c < _b : _c.m$lt$(null, _b)) : _a);};;$opal.donate(this, ["m$lt$", "m$le$", "m$eq$", "m$gt$", "m$ge$", "m$between$p"]);
+    return (_a = (_b = this, _c = min, typeof(_b) === 'number' ? _b > _c : _b.m$gt$(null, _c)) ? (_c = this, _b = max, typeof(_c) === 'number' ? _c < _b : _c.m$lt$(null, _b)) : _a);};;this.$donate(["m$lt$", "m$le$", "m$eq$", "m$gt$", "m$ge$", "m$between$p"]);
 }, 1);
 
 
@@ -2119,7 +2112,7 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
 
     return (_a=$const.Enumerator).m$new.apply(_a, [null, this, method].concat(args));};
 
-  this.m$alias_method(null, "to_enum", "enum_for");;$opal.donate(this, ["m$enum_for"]);
+  this.m$alias_method(null, "to_enum", "enum_for");;this.$donate(["m$enum_for"]);
 }, 1);
 
 $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$proto; 
@@ -4229,7 +4222,7 @@ $klass(this, nil, "Struct", function() {var $const = this.$const, $proto = this.
   $defs(this, 'm$new', function($yield, name, args) {var _a; args = $slice.call(arguments, 2);
     if ((_a = this.m$eq$(
 
-    null, $const.Struct)) !== false && _a !== nil) {} else {return $zuper(arguments.callee, this, [])};if ((_a = name.m$is_a$p(null, $const.String)) !== false && _a !== nil) {
+    null, $const.Struct)) !== false && _a !== nil) {} else {return $opal.zuper(arguments.callee, this, [])};if ((_a = name.m$is_a$p(null, $const.String)) !== false && _a !== nil) {
       return $const.Struct.m$const_set(null, name, (_a=this).m$new.apply(_a, [null].concat(args)))} else {
 
       args.m$unshift(
@@ -4341,7 +4334,7 @@ $klass(this, nil, "Time", function() {var $const = this.$const, $proto = this.$p
 
 
 
-    if ((_a = year) !== false && _a !== nil) {return $zuper(arguments.callee, this, [new Date(year.m$to_native(), month.m$to_native(), day.m$to_native(), hour.m$to_native(), min.m$to_native(), sec.m$to_native())])} else {return $zuper(arguments.callee, this, [new Date()])};};
+    if ((_a = year) !== false && _a !== nil) {return $opal.zuper(arguments.callee, this, [new Date(year.m$to_native(), month.m$to_native(), day.m$to_native(), hour.m$to_native(), min.m$to_native(), sec.m$to_native())])} else {return $opal.zuper(arguments.callee, this, [new Date()])};};
 
   $proto.m$plus$ = function($yield, other) {var _a, _b; 
 
