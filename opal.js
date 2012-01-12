@@ -1,18 +1,17 @@
 /*!
  * opal v0.3.15
- * http://adambeynon.github.com/opal
+ * http://opalrb.org
  *
  * Copyright 2012, Adam Beynon
  * Released under the MIT license
  */
+
 (function(undefined) {
 var opal = this.opal = {};
 
 // Minify common function calls
-var ArrayProto          = Array.prototype,
-    ObjectProto         = Object.prototype,
-    $slice              = ArrayProto.slice,
-    hasOwnProperty      = ObjectProto.hasOwnProperty;
+var hasOwnProperty  = Object.prototype.hasOwnProperty,
+    $slice          = Array.prototype.slice;
 
 // Types - also added to bridged objects
 var T_CLASS      = 0x0001,
@@ -47,22 +46,6 @@ function define_attr(klass, name, getter, setter) {
   }
 }
 
-function define_attr_bridge(klass, target, name, getter, setter) {
-  if (getter) {
-    define_method(klass, mid_to_jsid(name), function() {
-      var res = target[name];
-
-      return res == null ? nil : res;
-    });
-  }
-
-  if (setter) {
-    define_method(klass, mid_to_jsid(name + '='), function (block, val) {
-      return target[name] = val;
-    });
-  }
-}
-
 /**
  * Hash constructor
  */
@@ -77,7 +60,7 @@ function Hash() {
 
   for (var i = 0, length = args.length; i < length; i++) {
     key = args[i];
-    assocs[key.m$hash()] = [key, args[++i]];
+    assocs[key.$hash()] = [key, args[++i]];
   }
 
   return this;
@@ -127,15 +110,6 @@ opal.const_get = function(const_table, id) {
   raise(RubyNameError, 'uninitialized constant ' + id);
 };
 
-// Set constant with given id
-opal.const_set = function(base, id, val) {
-  if (base.$flags & T_OBJECT) {
-    base = class_real(base.$klass);
-  }
-
-  return base.$const[id] = val;
-};
-
 // Table holds all class variables
 opal.cvars = {};
 
@@ -162,7 +136,7 @@ opal.alias = function(klass, new_name, old_name) {
   var body = klass.$allocator.prototype[old_name];
 
   if (!body) {
-    raise(RubyNameError, "undefined method `" + old_name + "' for class `" + klass.__classid__ + "'");
+    raise(RubyNameError, "undefined method `" + old_name + "' for class `" + klass.$name + "'");
   }
 
   define_method(klass, new_name, body);
@@ -172,11 +146,10 @@ opal.alias = function(klass, new_name, old_name) {
 // method missing yielder - used in debug mode to call method_missing.
 opal.mm = function(jsid) {
   var mid = jsid_to_mid(jsid);
-  return function(block) {
+  return function() {
     var args = $slice.call(arguments, 1);
     args.unshift(mid);
-    args.unshift(block);
-    return this.m$method_missing.apply(this, args);
+    return this.$method_missing.apply(this, args);
   };
 }
 
@@ -193,7 +166,6 @@ var define_method = opal.defn = function(klass, id, body) {
   }
 
   klass.$allocator.prototype[id] = body;
-  klass.$m[id]           = body;
 
   var included_in = klass.$included_in, includee;
 
@@ -205,7 +177,6 @@ var define_method = opal.defn = function(klass, id, body) {
     }
   }
 
-  // Add method to toll-free prototypes as well
   if (klass.$bridge_prototype) {
     klass.$bridge_prototype[id] = body;
   }
@@ -213,36 +184,6 @@ var define_method = opal.defn = function(klass, id, body) {
 
   return nil;
 }
-
-function define_method_bridge(klass, target, id, name) {
-  define_method(klass, id, function() {
-    return target.apply(this, $slice.call(arguments, 1));
-  });
-}
-
-function string_inspect(self) {
-  /* borrowed from json2.js, see file for license */
-  var cx        = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
-      escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
-      meta      = {
-        '\b': '\\b',
-        '\t': '\\t',
-        '\n': '\\n',
-        '\f': '\\f',
-        '\r': '\\r',
-        '"' : '\\"',
-        '\\': '\\\\'
-      };
-
-  escapable.lastIndex = 0;
-
-  return escapable.test(self) ? '"' + self.replace(escapable, function(a) {
-    var c = meta[a];
-
-    return typeof c === 'string' ? c :
-      '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
-  }) + '"' : '"' + self + '"';
-};
 
 // Fake yielder used when no block given
 opal.no_proc = function() {
@@ -264,7 +205,7 @@ function define_module(base, id) {
   var module;
 
   module             = boot_module();
-  module.__classid__ = (base === RubyObject ? id : base.__classid__ + '::' + id)
+  module.$name = (base === RubyObject ? id : base.$name + '::' + id)
 
   make_metaclass(module, RubyModule);
 
@@ -322,7 +263,7 @@ opal.klass = function(base, superklass, id, body, type) {
         superklass = RubyObject;
       }
 
-      if (base.$const.hasOwnProperty(id)) {
+      if (hasOwnProperty.call(base.$const, id)) {
         klass = base.$const[id];
       }
       else {
@@ -336,7 +277,7 @@ opal.klass = function(base, superklass, id, body, type) {
         base = class_real(base.$klass);
       }
 
-      if (base.$const.hasOwnProperty(id)) {
+      if (hasOwnProperty.call(base.$const, id)) {
         klass = base.$const[id];
       }
       else {
@@ -377,10 +318,9 @@ opal.zuper = function(callee, self, args) {
 
   if (!func) {
     raise(RubyNoMethodError, "super: no superclass method `" + mid + "'"
-             + " for " + self.$m.inspect(self, 'inspect'));
+             + " for " + self.$inspect());
   }
 
-  args.unshift(null);
   return func.apply(self, args);
 };
 
@@ -389,7 +329,7 @@ function mid_to_jsid(mid) {
     return method_names[mid];
   }
 
-  return 'm$' + mid.replace('!', '$b').replace('?', '$p').replace('=', '$e');
+  return '$' + mid.replace('!', '$b').replace('?', '$p').replace('=', '$e');
 }
 
 function jsid_to_mid(jsid) {
@@ -397,14 +337,14 @@ function jsid_to_mid(jsid) {
     return reverse_method_names[jsid];
   }
 
-  jsid = jsid.substr(2); // remove 'm$'
+  jsid = jsid.substr(1); // remove '$'
 
   return jsid.replace('$b', '!').replace('$p', '?').replace('$e', '=');
 }
 
 // Raise a new exception using exception class and message
 function raise(exc, str) {
-  throw exc.m$new(null, str);
+  throw exc.$new(str);
 }
 
 opal.arg_error = function(given, expected) {
@@ -414,21 +354,22 @@ opal.arg_error = function(given, expected) {
 // Inspect object or class
 function inspect_object(obj) {
   if (obj.$flags & T_OBJECT) {
-    return "#<" + class_real(obj.$klass).__classid__ + ":0x" + (obj.$id * 400487).toString(16) + ">";
+    return "#<" + class_real(obj.$klass).$name + ":0x" + (obj.$id * 400487).toString(16) + ">";
   }
   else {
-    return obj.__classid__;
+    return obj.$name;
   }
 }
+
 // Root of all objects and classes inside opal
 function RootObject() {};
 
 RootObject.prototype.toString = function() {
   if (this.$flags & T_OBJECT) {
-    return "#<" + (this.$klass).__classid__ + ":0x" + this.$id + ">";
+    return "#<" + (this.$klass).$name + ":0x" + this.$id + ">";
   }
   else {
-    return '<' + this.__classid__ + ' ' + this.$id + '>';
+    return '<' + this.$name + ' ' + this.$id + '>';
   }
 };
 
@@ -471,11 +412,9 @@ function boot_makemeta(id, klass, superklass) {
 
   var proto              = meta.prototype;
       proto.$included_in = [];
-      proto.$m           = {};
-      proto.$methods     = [];
       proto.$allocator   = klass;
       proto.$flags       = T_CLASS;
-      proto.__classid__  = id;
+      proto.$name  = id;
       proto.$s           = superklass;
       proto.constructor  = meta;
 
@@ -519,8 +458,6 @@ function boot_class(superklass) {
   proto                            = meta.prototype;
   proto.$allocator                 = cls;
   proto.$flags                     = T_CLASS;
-  proto.$m                         = {};
-  proto.$methods                   = [];
   proto.constructor                = meta;
   proto.$s                         = superklass;
 
@@ -576,10 +513,10 @@ function make_metaclass(klass, superklass) {
       raise(RubyException, "too much meta: return klass?");
     }
     else {
-      var class_id = "#<Class:" + klass.__classid__ + ">",
+      var class_id = "#<Class:" + klass.$name + ">",
           meta     = boot_class(superklass);
 
-      meta.__classid__ = class_id;
+      meta.$name = class_id;
       meta.$allocator.prototype = klass.constructor.prototype;
       meta.$flags |= FL_SINGLETON;
 
@@ -598,10 +535,10 @@ function make_metaclass(klass, superklass) {
 
 function make_singleton_class(obj) {
   var orig_class = obj.$klass,
-      class_id   = "#<Class:#<" + orig_class.__classid__ + ":" + orig_class.$id + ">>";
+      class_id   = "#<Class:#<" + orig_class.$name + ":" + orig_class.$id + ">>";
 
   klass             = boot_class(orig_class);
-  klass.__classid__ = class_id;
+  klass.$name = class_id;
 
   klass.$flags                |= FL_SINGLETON;
   klass.$bridge_prototype  = obj;
@@ -634,10 +571,10 @@ function bridge_class(constructor, flags, id) {
 function define_class(base, id, superklass) {
   var klass;
 
-  var class_id = (base === RubyObject ? id : base.__classid__ + '::' + id);
+  var class_id = (base === RubyObject ? id : base.$name + '::' + id);
 
   klass             = boot_class(superklass);
-  klass.__classid__ = class_id;
+  klass.$name = class_id;
 
   make_metaclass(klass, superklass.$klass);
 
@@ -648,8 +585,8 @@ function define_class(base, id, superklass) {
 
   base.$const[id] = klass;
 
-  if (superklass.m$inherited) {
-    superklass.m$inherited(null, klass);
+  if (superklass.$inherited) {
+    superklass.$inherited(null, klass);
   }
 
   return klass;
@@ -669,26 +606,26 @@ function singleton_class(obj) {
     klass = obj.$klass;
   }
   else {
-    var class_id = obj.$klass.__classid__;
+    var class_id = obj.$klass.$name;
 
     klass = make_metaclass(obj, obj.$klass);
   }
 
   return klass;
 }
+
 opal.main = function(id) {
   opal.gvars.$0 = find_lib(id);
 
   try {
-    top_self.m$require(null, id);
+    top_self.$require(id);
 
     opal.do_at_exit();
   }
   catch (e) {
     // this is defined in debug.js
-    if (opal.backtrace) {
-      opal.backtrace(e);
-    }
+    console.log(e.$klass.$name + ': ' + e.message);
+    console.log("\t" + e.$backtrace().join("\n\t"));
   }
 };
 
@@ -727,44 +664,34 @@ opal.lib = function(lib, factory) {
   LIBS[lib]       = file;
 };
 
-FACTORIES = {};
-LIBS      = {};
-LOADER_PATHS     = ['', '/lib'];
-LOADER_CACHE     = {};
+var FACTORIES    = {},
+    LIBS         = {},
+    LOADER_PATHS = ['', '/lib'],
+    LOADER_CACHE = {};
 
 function find_lib(id) {
-  var lib  = '/lib/' + id;
+  var path;
 
   // try to load a lib path first - i.e. something in our load path
-  if (FACTORIES[lib + '.rb']) {
-    return lib + '.rb';
-  }
+  if (path = LIBS[id]) return path;
+
+  // find '/opal/x' style libs
+  if (path = LIBS['opal/' + id]) return path;
 
   // next, incase our require() has a ruby extension..
-  if (FACTORIES[lib]) {
-    return lib;
-  }
+  if (FACTORIES['/lib/' +id]) return '/lib/' + id;
 
   // check if id is full path..
-  if (FACTORIES[id]) {
-    return id;
-  }
+  if (FACTORIES[id]) return id;
 
   // full path without '.rb'
-  if (FACTORIES[id + '.rb']) {
-    return id + '.rb';
-  }
+  if (FACTORIES[id + '.rb']) return id + '.rb';
 
   // check in current working directory.
   var in_cwd = FS_CWD + '/' + id;
 
-  if (FACTORIES[in_cwd]) {
-    return in_cwd;
-  }
+  if (FACTORIES[in_cwd]) return in_cwd;
 };
-
-// Split to dirname, basename and extname
-var PATH_RE = /^(.+\/(?!$)|\/)?((?:.+?)?(\.[^.]*)?)$/;
 
 // Current working directory
 var FS_CWD = '/';
@@ -827,48 +754,7 @@ function fs_glob_to_regexp(glob) {
 
   return new RegExp('^' + result + '$');
 };
-function exc_backtrace(err) {
-  var old = Error.prepareStackTrace;
-  Error.prepareStackTrace = prepare_backtrace;
 
-  var backtrace = err.stack;
-  Error.prepareStackTrace = old;
-
-  if (backtrace && backtrace.join) {
-    return backtrace;
-  }
-
-  return ["No backtrace available"];
-}
-
-function prepare_backtrace(error, stack) {
-  var code = [], f, b, k, name, self;
-
-  for (var i = 0; i < stack.length; i++) {
-    f = stack[i];
-    b = f.getFunction();
-    name = f.getMethodName();
-    self = f.getThis();
-    
-    if (!self.$klass || !name) {
-      continue;
-    }
-    
-    self  = (self.$flags & T_OBJECT ?
-           class_real(self.$klass).__classid__ + '#' :
-           self.__classid__ + '.');
-
-    code.push("from " + self + jsid_to_mid(name) + ' at ' + f.getFileName() + ":" + f.getLineNumber());
-  }
-
-  return code;
-}
-
-// Print error backtrace to console
-opal.backtrace = opal.bt = function(err) {
-  console.log(err.$klass.__classid__ + ": " + err.message);
-  console.log("\t" + exc_backtrace(err).join("\n\t"));
-};
 // Initialization
 // --------------
 
@@ -948,15 +834,15 @@ var top_self = opal.top = new RubyObject.$allocator();
 var RubyNilClass  = define_class(RubyObject, 'NilClass', RubyObject);
 var nil = opal.nil = new RubyNilClass.$allocator();
 
-var RubyArray     = bridge_class(Array, T_OBJECT | T_ARRAY, 'Array');
-var RubyNumeric   = bridge_class(Number, T_OBJECT | T_NUMBER, 'Numeric');
+bridge_class(Array, T_OBJECT | T_ARRAY, 'Array');
+bridge_class(Number, T_OBJECT | T_NUMBER, 'Numeric');
 
-var RubyHash      = bridge_class(Hash, T_OBJECT, 'Hash');
+bridge_class(Hash, T_OBJECT, 'Hash');
 
-var RubyString    = bridge_class(String, T_OBJECT | T_STRING, 'String');
-var RubyBoolean   = bridge_class(Boolean, T_OBJECT | T_BOOLEAN, 'Boolean');
-var RubyProc      = bridge_class(Function, T_OBJECT | T_PROC, 'Proc');
-var RubyRegexp    = bridge_class(RegExp, T_OBJECT, 'Regexp');
+bridge_class(String, T_OBJECT | T_STRING, 'String');
+bridge_class(Boolean, T_OBJECT | T_BOOLEAN, 'Boolean');
+bridge_class(Function, T_OBJECT | T_PROC, 'Proc');
+bridge_class(RegExp, T_OBJECT, 'Regexp');
 
 var RubyMatch     = define_class(RubyObject, 'MatchData', RubyObject);
 var RubyRange     = define_class(RubyObject, 'Range', RubyObject);
@@ -977,17 +863,22 @@ var RubyRangeError     = define_class(RubyObject, 'RangeError', RubyStandardErro
 var RubyNotImplError   = define_class(RubyObject, 'NotImplementedError', RubyException);
 
 RubyException.$allocator.prototype.toString = function() {
-  return this.$klass.__classid__ + ': ' + this.message;
+  return this.$klass.$name + ': ' + this.message;
 };
 
 var breaker = opal.breaker  = new Error('unexpected break');
     breaker.$klass              = RubyLocalJumpError;
     breaker.$t              = function() { throw this; };
 
-var method_names = {'==': 'm$eq$', '===': 'm$eqq$', '[]': 'm$aref$', '[]=': 'm$aset$', '~': 'm$tild$', '<=>': 'm$cmp$', '=~': 'm$match$', '+': 'm$plus$', '-': 'm$minus$', '/': 'm$div$', '*': 'm$mul$', '<': 'm$lt$', '<=': 'm$le$', '>': 'm$gt$', '>=': 'm$ge$', '<<': 'm$lshft$', '>>': 'm$rshft$', '|': 'm$or$', '&': 'm$and$', '^': 'm$xor$', '+@': 'm$uplus$', '-@': 'm$uminus$', '%': 'm$mod$', '**': 'm$pow$'};
-var reverse_method_names = {}; for (var id in method_names) {
-reverse_method_names[method_names[id]] = id;}
-(function($opal) {var nil = $opal.nil, $const = $opal.constants, _a, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $defn = $opal.defn, $defs = $opal.defs, $const_get = $opal.const_get, $slice = $opal.slice;
+
+
+      var method_names = {'==': '$eq$', '===': '$eqq$', '[]': '$aref$', '[]=': '$aset$', '~': '$tild$', '<=>': '$cmp$', '=~': '$match$', '+': '$plus$', '-': '$minus$', '/': '$div$', '*': '$mul$', '<': '$lt$', '<=': '$le$', '>': '$gt$', '>=': '$ge$', '<<': '$lshft$', '>>': '$rshft$', '|': '$or$', '&': '$and$', '^': '$xor$', '+@': '$uplus$', '-@': '$uminus$', '%': '$mod$', '**': '$pow$'};
+      var reverse_method_names = {};
+      for (var id in method_names) {
+        reverse_method_names[method_names[id]] = id;
+      }
+    
+(function($opal) {var nil = $opal.nil, $const = $opal.constants, _a, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice;
 ($opal.gvars["$LOAD_PATH"] = ($opal.gvars["$:"] = LOADER_PATHS));
 
 
@@ -997,18 +888,19 @@ $const.RUBY_ENGINE = "opal-browser";
 $const.RUBY_PLATFORM = "opal";
 $const.RUBY_VERSION = "1.9.2";
 $const.ARGV = [];
-$klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$eqq$ = function($yield, object) {
 
-    return object.m$kind_of$p(null, this);};
+$klass(this, nil, "Module", function() {var $const = this.$const, def = this.$proto; 
+  def.$eqq$ = function(object) {
 
-  $proto.m$alias_method = function($yield, newname, oldname) {
+    return object.$kind_of$p(this);};
+
+  def.$alias_method = function(newname, oldname) {
     $opal.alias(this, newname, oldname);
 
     return this;
   };
 
-  $proto.m$ancestors = function($yield) {
+  def.$ancestors = function() {
 
     
       var parent = this,
@@ -1025,13 +917,13 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return result;
     };
 
-  $proto.m$append_features = function($yield, mod) {
+  def.$append_features = function(mod) {
     include_module(mod, this);
 
     return this;
   };
 
-  $proto.m$attr_accessor = function($yield, attrs) {attrs = $slice.call(arguments, 1);
+  def.$attr_accessor = function(attrs) {attrs = $slice.call(arguments, 0);
 
     
       for (var i = 0, length = attrs.length; i < length; i++) {
@@ -1041,17 +933,7 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return nil;
     };
 
-  $proto.m$attr_accessor_bridge = function($yield, target, attrs) {attrs = $slice.call(arguments, 2);
-
-    
-      for (var i = 0, length = attrs.length; i < length; i++) {
-        define_attr_bridge(this, target, attrs[i], true, true);
-      }
-
-      return nil;
-    };
-
-  $proto.m$attr_reader = function($yield, attrs) {attrs = $slice.call(arguments, 1);
+  def.$attr_reader = function(attrs) {attrs = $slice.call(arguments, 0);
 
     
       for (var i = 0, length = attrs.length; i < length; i++) {
@@ -1061,17 +943,7 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return nil;
     };
 
-  $proto.m$attr_reader_bridge = function($yield, target, attrs) {attrs = $slice.call(arguments, 2);
-
-    
-      for (var i = 0, length = attrs.length; i < length; i++) {
-        define_attr_bridge(this, target, attrs[i], true, false);
-      }
-
-      return nil;
-    };
-
-  $proto.m$attr_writer = function($yield, attrs) {attrs = $slice.call(arguments, 1);
+  def.$attr_writer = function(attrs) {attrs = $slice.call(arguments, 0);
 
     
       for (var i = 0, length = attrs.length; i < length; i++) {
@@ -1081,29 +953,13 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return nil;
     };
 
-  $proto.m$attr_reader_bridge = function($yield, target, attrs) {attrs = $slice.call(arguments, 2);
-
-    
-      for (var i = 0, length = attrs.length; i < length; i++) {
-        define_attr_bridge(this, target, attrs[i], false, true);
-      }
-
-      return nil;
-    };
-
-  $proto.m$attr = function($yield, name, setter) {if (setter === undefined) { setter = false; }
+  def.$attr = function(name, setter) {if (setter === undefined) { setter = false; }
     define_attr(this, name, true, setter);
 
     return this;
   };
 
-  $proto.m$attr_bridge = function($yield, target, name, setter) {if (setter === undefined) { setter = false; }
-    define_attr_bridge(this, target, name, true, setter);
-
-    return this;
-  };
-
-  $proto.m$define_method = function($yield, name) {var $block_given = ($yield != null); var body = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$define_method = $TMP_1 = function(name) {var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, body = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, body = nil; }
 
     
       if (body === nil) {
@@ -1111,28 +967,18 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       }
 
       define_method(this, mid_to_jsid(name), body);
-      this.$methods.push(name);
 
       return nil;
     };
 
-  $proto.m$define_method_bridge = function($yield, object, name, ali) {var _a; if (ali === undefined) { ali = nil; }
-
-    
-      define_method_bridge(this, object, mid_to_jsid((_a = ali, _a !== false && _a != nil ? _a : name)), name);
-      this.$methods.push(name);
-
-      return nil;
-    };
-
-  $proto.m$include = function($yield, mods) {var mod = nil; mods = $slice.call(arguments, 1);
+  def.$include = function(mods) {var mod = nil; mods = $slice.call(arguments, 0);
 
     
       var i = mods.length - 1, mod;
       while (i >= 0) {
         mod = mods[i];
-        mod.m$append_features(null, this);
-        mod.m$included(null, this);
+        mod.$append_features(this);
+        mod.$included(this);
 
         i--;
       }
@@ -1140,15 +986,15 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return this;
     };
 
-  $proto.m$instance_methods = function($yield) {
 
-    return this.$methods;};
+  def.$instance_methods = function() {
 
-  $proto.m$included = function($yield, mod) {
+    return [];};
 
+  def.$included = function(mod) {
     return nil;};
 
-  $proto.m$module_eval = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$module_eval = $TMP_2 = function() {var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_2.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       if (block === nil) {
@@ -1158,44 +1004,45 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return block.call(this, null);
     };
 
-  this.m$alias_method(null, "class_eval", "module_eval");
+  $opal.alias(this, "class_eval", "module_eval");
 
-  $proto.m$name = function($yield) {
+  def.$name = function() {
 
-    return this.__classid__;};
+    return this.$name;};
 
-  this.m$alias_method(null, "public_instance_methods", "instance_methods");
+  $opal.alias(this, "public_instance_methods", "instance_methods");
 
-  return this.m$alias_method(null, "to_s", "name");
+  return $opal.alias(this, "to_s", "name");
 }, 0);
-$klass(this, nil, "Class", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$new', function($yield, sup) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (sup === undefined) { sup = $const.Object; }
+
+$klass(this, nil, "Class", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$new', $TMP_3 = function(sup) {var $yield = $TMP_3.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_3.$P = null; }else { $yield = $no_proc, block = nil; }if (sup === undefined) { sup = $const.Object; }
     
-      var klass             = boot_class(sup);
-          klass.__classid__ = "AnonClass";
+      var klass       = boot_class(sup);
+          klass.$name = "AnonClass";
 
       make_metaclass(klass, sup.$klass);
 
-      sup.m$inherited(null, klass);
+      sup.$inherited(klass);
 
       return block !== nil ? block.call(klass, null) : klass;
     
   });
 
-  $proto.m$allocate = function($yield) {
+  def.$allocate = function() {
 
     return new this.$allocator();};
 
-  $proto.m$new = function($yield, args) {var obj = nil, _a, _b; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;args = $slice.call(arguments, 1);
-    obj = this.m$allocate();
-    (_b=obj).m$initialize.apply(_b, [
-    (_b = block, (typeof(_b) === 'function' || _b == nil ? _b : _b.m$to_proc()))].concat(args));
+  def.$new = $TMP_4 = function(args) {var obj = nil, _a, _b, _c; var $yield = $TMP_4.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_4.$P = null; }else { $yield = $no_proc, block = nil; }args = $slice.call(arguments, 0);
+    obj = this.$allocate();
+    (_a=(_b=obj).$initialize, _a.$P = 
+    (_c = block, (typeof(_c) === 'function' || _c == nil ? _c : _c.$to_proc())), _a).apply(_b, args);
     return obj;};
 
-  $proto.m$inherited = function($yield, cls) {
+  def.$inherited = function(cls) {
     return nil;};
 
-  return $proto.m$superclass = function($yield) {
+  return def.$superclass = function() {
 
     
       var sup = this.$s;
@@ -1212,30 +1059,28 @@ $klass(this, nil, "Class", function() {var $const = this.$const, $proto = this.$
     };
 }, 0);
 
-$klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$match$ = function($yield, obj) {
+$klass(this, nil, "Kernel", function() {var $const = this.$const, def = this.$proto; 
+  def.$match$ = function(obj) {
 
     return false;};
 
-  $proto.m$eqq$ = function($yield, other) {
+  def.$eqq$ = function(other) {
 
     return this == other;};
 
-  $proto.m$Object = function($yield, object) {var _a, _b; 
-
-    if ((_a = (!!(_b = object, _b == null || !_b.$klass))) !== false && _a !== nil) {return $opal.const_get(($const.Native).$const, "Object").m$new(null, object)} else {return object};};
-
-  $proto.m$Array = function($yield, object) {var _a, _b; 
+  def.$Array = function(object) {var _a; 
 
 
-    if ((_a = object) !== false && _a !== nil) {} else {return []};if ((_a = (!!(_b = object, _b == null || !_b.$klass))) !== false && _a !== nil) {} else {
-      if ((_a = object.m$respond_to$p(null, "to_ary")) !== false && _a !== nil) {return object.m$to_ary()
-      };if ((_a = object.m$respond_to$p(null, "to_a")) !== false && _a !== nil) {return object.m$to_a()
-      };};
+    if ((_a = object) !== false && _a !== nil) {} else {return []};
+      if (object.$to_ary) {
+        return object.$to_ary();
+      }
+      else if (object.$to_a) {
+        return object.$to_a();
+      }
 
-    
       var length = object.length || 0,
-          result = new Array(length);
+          result = [];
 
       while (length--) {
         result[length] = object[length];
@@ -1245,7 +1090,7 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
     
   };
 
-  $proto.m$at_exit = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$at_exit = $TMP_5 = function() {var $yield = $TMP_5.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_5.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       if (block === nil) {
@@ -1257,11 +1102,11 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return block;
     };
 
-  $proto.m$class = function($yield) {
+  def.$class = function() {
 
     return class_real(this.$klass);};
 
-  $proto.m$define_singleton_method = function($yield) {var $block_given = ($yield != null); var body = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$define_singleton_method = $TMP_6 = function() {var $yield = $TMP_6.$P;if ($yield) { var $context = $yield.$S, $block_given = true, body = $yield; $TMP_6.$P = null; }else { $yield = $no_proc, body = nil; }
 
     
       if (body === nil) {
@@ -1273,11 +1118,11 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return this;
     };
 
-  $proto.m$equal$p = function($yield, other) {
+  def.$equal$p = function(other) {
 
     return this === other;};
 
-  $proto.m$extend = function($yield, mods) {mods = $slice.call(arguments, 1);
+  def.$extend = function(mods) {mods = $slice.call(arguments, 0);
 
     
       for (var i = 0, length = mods.length; i < length; i++) {
@@ -1287,23 +1132,23 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return this;
     };
 
-  $proto.m$hash = function($yield) {
+  def.$hash = function() {
 
     return this.$id;};
 
-  $proto.m$inspect = function($yield) {
+  def.$inspect = function() {
 
-    return this.m$to_s();};
+    return this.$to_s();};
 
-  $proto.m$instance_of$p = function($yield, klass) {
+  def.$instance_of$p = function(klass) {
 
     return this.$klass === klass;};
 
-  $proto.m$instance_variable_defined$p = function($yield, name) {
+  def.$instance_variable_defined$p = function(name) {
 
-    this.hasOwnProperty(name.substr(1));};
+    return hasOwnProperty.call(this, name.substr(1));};
 
-  $proto.m$instance_variable_get = function($yield, name) {
+  def.$instance_variable_get = function(name) {
 
     
       var ivar = this[name.substr(1)];
@@ -1311,11 +1156,11 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return ivar == undefined ? nil : ivar;
     };
 
-  $proto.m$instance_variable_set = function($yield, name, value) {
+  def.$instance_variable_set = function(name, value) {
 
     return this[name.substr(1)] = value;};
 
-  $proto.m$instance_variables = function($yield) {
+  def.$instance_variables = function() {
 
     
       var result = [];
@@ -1327,7 +1172,7 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return result;
     };
 
-  $proto.m$is_a$p = function($yield, klass) {
+  def.$is_a$p = function(klass) {
 
     
       var search = this.$klass;
@@ -1343,18 +1188,18 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return false;
     };
 
-  this.m$alias_method(null, "kind_of?", "is_a?");
+  $opal.alias(this, "kind_of?", "is_a?");
 
-  $proto.m$lambda = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$lambda = $TMP_7 = function() {var $yield = $TMP_7.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_7.$P = null; }else { $yield = $no_proc, block = nil; }
 
     return block;};
 
-  $proto.m$loop = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$loop = $TMP_8 = function() {var $yield = $TMP_8.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_8.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "loop")};
+    if ($block_given) {} else {return this.$enum_for("loop")};
       while (true) {
-        if ($yield.call($context, null) === breaker) {
+        if ($yield.call($context) === breaker) {
           return breaker.$v;
         }
       }
@@ -1363,44 +1208,44 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
     
   };
 
-  $proto.m$nil$p = function($yield) {
+  def.$nil$p = function() {
 
     return false;};
 
-  $proto.m$object_id = function($yield) {
+  def.$object_id = function() {
 
     return this.$id || (this.$id = unique_id++);};
 
-  $proto.m$print = function($yield, strs) {var _a, _b; strs = $slice.call(arguments, 1);
+  def.$print = function(strs) {var _a, _b; strs = $slice.call(arguments, 0);
 
-    return (_a=((_b = $opal.gvars["$stdout"]) == null ? nil : _b)).m$print.apply(_a, [null].concat(strs));};
+    return (_a=((_b = $opal.gvars["$stdout"]) == null ? nil : _b)).$print.apply(_a, strs);};
 
-  $proto.m$proc = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$proc = $TMP_9 = function() {var $yield = $TMP_9.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_9.$P = null; }else { $yield = $no_proc, block = nil; }
 
     return block;};
 
-  $proto.m$puts = function($yield, strs) {var _a, _b; strs = $slice.call(arguments, 1);
+  def.$puts = function(strs) {var _a, _b; strs = $slice.call(arguments, 0);
 
-    return (_a=((_b = $opal.gvars["$stdout"]) == null ? nil : _b)).m$puts.apply(_a, [null].concat(strs));};
+    return (_a=((_b = $opal.gvars["$stdout"]) == null ? nil : _b)).$puts.apply(_a, strs);};
 
-  $proto.m$raise = function($yield, exception, string) {var _a; if (string === undefined) { string = undefined; }
+  def.$raise = function(exception, string) {var _a; 
 
     
-      if ((typeof exception === 'string')) {
-        exception = (RubyRuntimeError).m$new(null, exception);
+      if (typeof(exception) === 'string') {
+        exception = (RubyRuntimeError).$new(exception);
       }
-      else if (((_a = exception.m$is_a$p(null, RubyException)) === false || _a === nil)) {
-        exception = (exception).m$new(null, string);
+      else if (((_a = exception.$is_a$p(RubyException)) === false || _a === nil)) {
+        exception = (exception).$new(string);
       }
 
       throw exception;
     };
 
-  $proto.m$rand = function($yield, max) {if (max === undefined) { max = undefined; }
+  def.$rand = function(max) {
 
     return max === undefined ? Math.random() : Math.floor(Math.random() * max);};
 
-  $proto.m$require = function($yield, path) {
+  def.$require = function(path) {
 
     
       var resolved = find_lib(path);
@@ -1415,62 +1260,52 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
 
       LOADER_CACHE[resolved] = true;
       $opal.FILE = resolved;
-      FACTORIES[resolved].call(top_self, resolved, $opal);
+      FACTORIES[resolved]();
 
       return true;
     };
 
-  $proto.m$respond_to$p = function($yield, name) {
+  def.$respond_to$p = function(name) {
 
-    
-      var meth = this[mid_to_jsid(name)];
-      return !!meth;
-    };
+    return !!this[mid_to_jsid(name)];};
 
-  $proto.m$singleton_class = function($yield) {
+  def.$singleton_class = function() {
 
     return singleton_class(this);};
 
-  $proto.m$tap = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$tap = $TMP_10 = function() {var $yield = $TMP_10.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_10.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       if (block === nil) {
         raise(RubyLocalJumpError, 'no block given');
       }
 
-      if ($yield.call($context, null, this) === breaker) {
+      if ($yield.call($context, this) === breaker) {
         return breaker.$v;
       }
 
       return this;
     };
 
-  $proto.m$to_s = function($yield) {
+  def.$to_s = function() {
 
-    return inspect_object(this);};;this.$donate(["m$match$", "m$eqq$", "m$Object", "m$Array", "m$at_exit", "m$class", "m$define_singleton_method", "m$equal$p", "m$extend", "m$hash", "m$inspect", "m$instance_of$p", "m$instance_variable_defined$p", "m$instance_variable_get", "m$instance_variable_set", "m$instance_variables", "m$is_a$p", "m$lambda", "m$loop", "m$nil$p", "m$object_id", "m$print", "m$proc", "m$puts", "m$raise", "m$rand", "m$require", "m$respond_to$p", "m$singleton_class", "m$tap", "m$to_s"]);
+    return inspect_object(this);};;this.$donate(["$match$", "$eqq$", "$Array", "$at_exit", "$class", "$define_singleton_method", "$equal$p", "$extend", "$hash", "$inspect", "$instance_of$p", "$instance_variable_defined$p", "$instance_variable_get", "$instance_variable_set", "$instance_variables", "$is_a$p", "$lambda", "$loop", "$nil$p", "$object_id", "$print", "$proc", "$puts", "$raise", "$rand", "$require", "$respond_to$p", "$singleton_class", "$tap", "$to_s"]);
 }, 1);
 
-$klass(this, nil, "BasicObject", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$initialize = function($yield) {
+$klass(this, nil, "BasicObject", function() {var $const = this.$const, def = this.$proto; 
+  def.$initialize = function() {
     return nil;};
 
-  $proto.m$eq$ = function($yield, other) {
+  def.$eq$ = function(other) {
 
     return this === other;};
 
-  $proto.m$__send__ = function($yield, symbol, args) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;args = $slice.call(arguments, 2);
+  def.$__send__ = $TMP_11 = function(symbol, args) {var $yield = $TMP_11.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_11.$P = null; }else { $yield = $no_proc, block = nil; }args = $slice.call(arguments, 1);
 
     
-      var meth = this[mid_to_jsid(symbol)];
+      var meth = this[mid_to_jsid(symbol)] || $opal.mm(mid_to_jsid(symbol));
 
-      if (meth) {
-        args.unshift(null);
-
-        return meth.apply(this, args);
-      }
-      else {
-        throw new Error("method missing yielder for " + symbol + " in __send__");
-      }
+      return meth.apply(this, args);
     };
 
   $opal.alias(this, "send", "__send__");
@@ -1478,113 +1313,100 @@ $klass(this, nil, "BasicObject", function() {var $const = this.$const, $proto = 
   $opal.alias(this, "eql?", "==");
   $opal.alias(this, "equal?", "==");
 
-  $proto.m$instance_eval = function($yield, string) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (string === undefined) { string = nil; }
+  def.$instance_eval = $TMP_12 = function(string) {var $yield = $TMP_12.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_12.$P = null; }else { $yield = $no_proc, block = nil; }if (string === undefined) { string = nil; }
 
     
       if (block === nil) {
         raise(RubyArgError, 'block not supplied');
       }
 
-      return block.call(this, null, this);
+      return block.call(this, this);
     };
 
-  $proto.m$instance_exec = function($yield, args) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;args = $slice.call(arguments, 1);
+  def.$instance_exec = $TMP_13 = function(args) {var $yield = $TMP_13.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_13.$P = null; }else { $yield = $no_proc, block = nil; }args = $slice.call(arguments, 0);
 
     
       if (block === nil) {
         raise(RubyArgError, 'block not supplied');
       }
-
-      args.unshift(null);
 
       return block.apply(this, args);
     };
 
-  $proto.m$method_missing = function($yield, symbol, args) {args = $slice.call(arguments, 2);
+  def.$method_missing = function(symbol, args) {args = $slice.call(arguments, 1);
 
-    return raise(RubyNoMethodError, 'undefined method `' + symbol + '` for ' + this.m$inspect());};
+    return raise(RubyNoMethodError, 'undefined method `' + symbol + '` for ' + this.$inspect());};
 
-  $proto.m$singleton_method_added = function($yield, symbol) {
-
+  def.$singleton_method_added = function(symbol) {
     return nil;};
 
-  $proto.m$singleton_method_removed = function($yield, symbol) {
-
+  def.$singleton_method_removed = function(symbol) {
     return nil;};
 
-  $proto.m$singleton_method_undefined = function($yield, symbol) {
-
-    return nil;};;this.$donate(["m$initialize", "m$eq$", "m$__send__", "m$instance_eval", "m$instance_exec", "m$method_missing", "m$singleton_method_added", "m$singleton_method_removed", "m$singleton_method_undefined"]);
+  def.$singleton_method_undefined = function(symbol) {
+    return nil;};;this.$donate(["$initialize", "$eq$", "$__send__", "$instance_eval", "$instance_exec", "$method_missing", "$singleton_method_added", "$singleton_method_removed", "$singleton_method_undefined"]);
 }, 0);
 
-$klass(this, nil, "Object", function() {var $const = this.$const, $proto = this.$proto; 
+$klass(this, nil, "Object", function() {var $const = this.$const, def = this.$proto; 
 
 
-  this.m$include(null, $const.Kernel);$proto.m$methods = function($yield) {
+  this.$include($const.Kernel);
+  def.$methods = function() {
 
-    return this.$klass.$methods;};
+    return [];};
 
-  this.m$alias_method(null, "private_methods", "methods");
+  $opal.alias(this, "private_methods", "methods");
+  $opal.alias(this, "protected_methods", "methods");
+  $opal.alias(this, "public_methods", "methods");
 
-  this.m$alias_method(null, "protected_methods", "methods");
 
-  this.m$alias_method(null, "public_methods", "methods");
+  def.$singleton_methods = function() {
 
-  $proto.m$singleton_methods = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError, "Object#singleton_methods not yet implemented");};
-
-  $proto.m$to_native = function($yield) {
-
-    return this.m$raise(null, $const.TypeError, "no specialized #to_native has been implemented");};;this.$donate(["m$methods", "m$singleton_methods", "m$to_native"]);
+    return [];};;this.$donate(["$methods", "$singleton_methods"]);
 }, 0);
 
-$defs(this, 'm$to_s', function(
-  $yield) {return "main"
+$opal.defs(this, '$to_s', function(
+  ) {return "main"
 });
 
-$defs(this, 'm$include', function($yield, mod) {
-  return $const.Object.m$include(
-  null, mod)});
+$opal.defs(this, '$include', function(mod) {
+  return $const.Object.$include(
+  mod)});
 
-$klass(this, nil, "Boolean", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$and$ = function($yield, other) {
+$klass(this, nil, "Boolean", function() {var $const = this.$const, def = this.$proto; 
+  def.$and$ = function(other) {
 
-    return this.valueOf() ? (other !== false && other !== nil) : false;};
+    return (this == true) ? (other !== false && other !== nil) : false;};
 
-  $proto.m$or$ = function($yield, other) {
+  def.$or$ = function(other) {
 
-    return this.valueOf() ? true : (other !== false && other !== nil);};
+    return (this == true) ? true : (other !== false && other !== nil);};
 
-  $proto.m$xor$ = function($yield, other) {
+  def.$xor$ = function(other) {
 
-    return this.valueOf() ? (other === false || other === nil) : (other !== false && other !== nil);};
+    return (this == true) ? (other === false || other === nil) : (other !== false && other !== nil);};
 
-  $proto.m$eq$ = function($yield, other) {
+  def.$eq$ = function(other) {
 
-    return this.valueOf() === other.valueOf();};
+    return (this == true) === other.valueOf();};
 
-  $proto.m$class = function($yield) {
+  def.$class = function() {
 
-    return this.valueOf() ? $const.TrueClass : $const.FalseClass;};
+    return (this == true) ? $const.TrueClass : $const.FalseClass;};
 
-  $proto.m$to_native = function($yield) {
+  return def.$to_s = function() {
 
-    return this.valueOf();};
-
-  return $proto.m$to_s = function($yield) {
-
-    return this.valueOf() ? 'true' : 'false';};
+    return (this == true) ? 'true' : 'false';};
 }, 0);
 
-$klass(this, nil, "TrueClass", function() {var $const = this.$const, $proto = this.$proto; 
-  return $defs(this, 'm$eqq$', function($yield, obj) {
+$klass(this, nil, "TrueClass", function() {var $const = this.$const, def = this.$proto; 
+  return $opal.defs(this, '$eqq$', function(obj) {
     return obj === true;
   })
 }, 0);
 
-$klass(this, nil, "FalseClass", function() {var $const = this.$const, $proto = this.$proto; 
-  return $defs(this, 'm$eqq$', function($yield, obj) {
+$klass(this, nil, "FalseClass", function() {var $const = this.$const, def = this.$proto; 
+  return $opal.defs(this, '$eqq$', function(obj) {
     return obj === false;
   })
 }, 0);
@@ -1592,236 +1414,181 @@ $klass(this, nil, "FalseClass", function() {var $const = this.$const, $proto = t
 $const.TRUE = true;
 $const.FALSE = false;
 
-$klass(this, nil, "NilClass", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$and$ = function($yield, other) {
+$klass(this, nil, "NilClass", function() {var $const = this.$const, def = this.$proto; 
+  def.$and$ = function(other) {
 
     return false;};
 
-  $proto.m$or$ = function($yield, other) {
+  def.$or$ = function(other) {
 
     return other !== false && other !== nil;};
 
-  $proto.m$xor$ = function($yield, other) {
+  def.$xor$ = function(other) {
 
     return other !== false && other !== nil;};
 
-  $proto.m$eq$ = function($yield, other) {
+  def.$eq$ = function(other) {
 
     return this === other;};
 
-  $proto.m$inspect = function($yield) {
+  def.$inspect = function() {
 
     return "nil";};
 
-  $proto.m$nil$p = function($yield) {
+  def.$nil$p = function() {
 
     return true;};
 
-  $proto.m$to_a = function($yield) {
+  def.$to_a = function() {
 
     return [];};
 
-  $proto.m$to_i = function($yield) {
+  def.$to_i = function() {
 
     return 0;};
 
-  $proto.m$to_f = function($yield) {
+  $opal.alias(this, "to_f", "to_i");
 
-    return 0.0;};
-
-  $proto.m$to_native = function($yield) {
-
-    var result; return result;};
-
-  return $proto.m$to_s = function($yield) {
+  return def.$to_s = function() {
 
     return "";};
 }, 0);
 
 $const.NIL = nil;
 
-$klass(this, nil, "Native", function() {var $const = this.$const, $proto = this.$proto; 
-  $klass(this, nil, "Object", function() {var $const = this.$const, $proto = this.$proto; 
-
-
-    this.m$include(null, $const.Native);$proto.m$aref$ = function($yield, name) {this['native'] == null && (this['native'] = nil);
-
-      return this['native'][name];};
-
-    $proto.m$aset$ = function($yield, name, value) {this['native'] == null && (this['native'] = nil);
-
-      return this['native'][name] = value;};
-
-    $proto.m$nil$p = function($yield) {this['native'] == null && (this['native'] = nil);
-
-      return this['native'] === null || this['native'] === undefined;};
-
-    $proto.m$method_missing = function($yield, name, args) {var _a, _b; this['native'] == null && (this['native'] = nil);args = $slice.call(arguments, 2);
-      if ((_a = (typeof this['native'][name] === 'function')) !== false && _a !== nil) {} else {return $opal.zuper(arguments.callee, this, [])
-
-      };return (_a=this).m$__native_send__.apply(_a, [null, name].concat(
-      args));};;this.$donate(["m$aref$", "m$aset$", "m$nil$p", "m$method_missing"]);
-  }, 0);
-
-  $defs(this, 'm$included', function($yield, klass) {
-    return $klass(
-    klass, nil, nil, function() {var $const = this.$const; return $defn(this, 'm$from_native', function($yield, object) {var instance = nil; 
-      instance = 
-      this.m$allocate();instance.m$instance_variable_set(null, "@native", 
-
-      object);
-      return instance;})}, 2)
-
-  });
-
-  $proto.m$initialize = function($yield, native$) {
-
-    return this['native'] = native$;};
-
-  $proto.m$to_native = function($yield) {this['native'] == null && (this['native'] = nil);
-
-    return this['native'];};
-
-  $proto.m$native_send = function($yield, name, args) {var _a, _b; this['native'] == null && (this['native'] = nil);args = $slice.call(arguments, 2);
-    if ((_a = (typeof this['native'][name] === 'function')) !== false && _a !== nil) {} else {return (_a=this).m$method_missing.apply(_a, [null, name].concat(args))
-
-    };return this['native'][name].apply(this['native'], args);
-  };
-
-  this.m$alias_method(null, "__native_send__", "native_send");;this.$donate(["m$initialize", "m$to_native", "m$native_send"]);
-}, 1);
-
-$klass(this, nil, "Enumerable", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$all$p = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+$klass(this, nil, "Enumerable", function() {var $const = this.$const, def = this.$proto; 
+  def.$all$p = $TMP_14 = function() {var $yield = $TMP_14.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_14.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       var result = true;
 
-      if (block !== nil) {
-        this.m$each(function (iter, obj) {
-          var value;
+      this.$each.$P = block !== nil
+        ? function(obj) {
+            var value;
 
-          if ((value = $yield.call($context, null, obj)) === $breaker) {
-            return $breaker.$v;
+            if ((value = $yield.call($context, obj)) === $breaker) {
+              return $breaker.$v;
+            }
+
+            if (value === false || value === nil) {
+              result      = false;
+              $breaker.$v = nil;
+
+              return $breaker;
+            }
           }
+        : function(obj) {
+            if (obj === false || obj === nil) {
+              result      = false;
+              $breaker.$v = nil;
 
-          if (value === false || value === nil) {
-            result      = false;
-            $breaker.$v = nil;
+              return $breaker;
+            }
+          };
 
-            return $breaker;
-          }
-        });
-      }
-      else {
-        this.m$each(function (iter, obj) {
-          if (obj === false || obj === nil) {
-            result      = false;
-            $breaker.$v = nil;
-
-            return $breaker;
-          }
-        });
-      }
+      this.$each();
 
       return result;
     };
 
-  $proto.m$any$p = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$any$p = $TMP_15 = function() {var $yield = $TMP_15.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_15.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
-      var result = false, proc;
+      var result = false;
 
-      if (block !== nil) {
-        this.m$each(function (iter, obj) {
-          var value;
+      this.$each.$P = block !== nil
+        ? function(obj) {
+            var value;
 
-          if ((value = $yield.call($context, null, obj)) === $breaker) {
-            return $breaker.$v;
+            if ((value = $yield.call($context, obj)) === $breaker) {
+              return $breaker.$v;
+            }
+
+            if (value !== false && value !== nil) {
+              result      = true;
+              $breaker.$v = nil;
+
+              return $breaker;
+            }
           }
+        : function(obj) {
+            if (obj !== false && obj !== nil) {
+              result      = true;
+              $breaker.$v = nil;
 
-          if (value !== false && value !== nil) {
-            result      = true;
-            $breaker.$v = nil;
+              return $breaker;
+            }
+          };
 
-            return $breaker;
-          }
-        });
-      }
-      else {
-        this.m$each(function (iter, obj) {
-          if (obj !== false && obj !== nil) {
-            result      = true;
-            $breaker.$v = nil;
-
-            return $breaker;
-          }
-        });
-      }
+      this.$each();
 
       return result;
     };
 
-  $proto.m$collect = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$collect = $TMP_16 = function() {var $yield = $TMP_16.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_16.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "collect")};
+    if ($block_given) {} else {return this.$enum_for("collect")};
       var result = [];
 
-      this.m$each(function () {
-        var obj = $slice.call(arguments, 1),
+      this.$each.$P = function () {
+        var obj = $slice.call(arguments),
             value;
 
-        if ((value = $yield.apply($context, [null].concat(obj))) === $breaker) {
+        if ((value = $yield.apply($context, obj)) === $breaker) {
           return $breaker.$v;
         }
 
         result.push(value);
-      });
+      };
+
+      this.$each();
 
       return result;
     
   };
 
-  $proto.m$count = function($yield, object) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (object === undefined) { object = undefined; }
+  def.$count = $TMP_17 = function(object) {var $yield = $TMP_17.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_17.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       var result = 0;
 
       if (block === nil) {
         if (object === undefined) {
-          $yield = function () { return true; };
+          $yield = function() { return true; };
         }
         else {
-          $yield = function (iter, obj) { return (obj).m$eq$(null, object); };
+          $yield = function(obj) { return (obj).$eq$(object); };
         }
       }
 
-      this.m$each(function (iter, obj) {
+      this.$each.$P = function(obj) {
         var value;
 
-        if ((value = $yield.call($context, null, obj)) === $breaker) {
+        if ((value = $yield.call($context, obj)) === $breaker) {
           return $breaker.$v;
         }
 
         if (value !== false && value !== nil) {
           result++;
         }
-      });
+      };
+
+      this.$each();
 
       return result;
     };
 
-  $proto.m$detect = function($yield, ifnone) {var _a; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (ifnone === undefined) { ifnone = undefined; }
+  def.$detect = $TMP_18 = function(ifnone) {var _a; var $yield = $TMP_18.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_18.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return this.m$enum_for(null, "detect", ifnone)};
+    if ((_a = block) !== false && _a !== nil) {} else {return this.$enum_for("detect", ifnone)};
       var result = nil;
 
-      this.m$each(function(iter, obj) {
+      this.$each.$P = function(obj) {
         var value;
 
-        if ((value = $yield.call($context, null, obj)) === $breaker) {
+        if ((value = $yield.call($context, obj)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -1831,49 +1598,53 @@ $klass(this, nil, "Enumerable", function() {var $const = this.$const, $proto = t
 
           return $breaker;
         }
-      });
+      };
+
+      this.$each();
 
       if (result !== nil) {
         return result;
       }
 
-      if ((typeof ifnone === 'function')) {
-        return ifnone.m$call(null);
+      if (typeof(ifnone) === 'function') {
+        return ifnone.$call();
       }
 
       return ifnone === undefined ? nil : ifnone;
     
   };
 
-  $proto.m$drop = function($yield, number) {
+  def.$drop = function(number) {
 
 
-    this.m$raise(null, $const.NotImplementedError);
+    this.$raise($const.NotImplementedError);
       var result  = [],
           current = 0;
 
-      this.m$each(function(iter, obj) {
+      this.$each.$P = function(obj) {
         if (number < current) {
           result.push(e);
         }
 
         current++;
-      });
+      };
+
+      this.$each();
 
       return result;
     
   };
 
-  $proto.m$drop_while = function($yield) {var _a; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$drop_while = $TMP_19 = function() {var _a; var $yield = $TMP_19.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_19.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return this.m$enum_for(null, "drop_while")};
+    if ((_a = block) !== false && _a !== nil) {} else {return this.$enum_for("drop_while")};
       var result = [];
 
-      this.m$each(function (iter, obj) {
+      this.$each.$P = function(obj) {
         var value;
 
-        if ((value = $yield.call($context, null, obj)) === $breaker) {
+        if ((value = $yield.call($context, obj)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -1883,58 +1654,63 @@ $klass(this, nil, "Enumerable", function() {var $const = this.$const, $proto = t
         else {
           return $breaker;
         }
-      });
+      };
+
+      this.$each();
 
       return result;
     
   };
 
-  $proto.m$each_with_index = function($yield) {var _a; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each_with_index = $TMP_20 = function() {var _a; var $yield = $TMP_20.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_20.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return this.m$enum_for(null, "each_with_index")};
+    if ((_a = block) !== false && _a !== nil) {} else {return this.$enum_for("each_with_index")};
       var index = 0;
 
-      this.m$each(function (iter, obj) {
+      this.$each.$P = function(obj) {
         var value;
 
-        if ((value = $yield.call($context, null, obj, index)) === $breaker) {
+        if ((value = $yield.call($context, obj, index)) === $breaker) {
           return $breaker.$v;
         }
 
         index++;
-      });
+      };
+
+      this.$each();
 
       return nil;
     
   };
 
-  $proto.m$entries = function($yield) {
+  def.$entries = function() {
 
     
       var result = [];
 
-      this.m$each(function (iter, obj) { return result.push(obj); })
+      this.$each.$P = function(obj) { return result.push(obj); };
+      this.$each();
 
       return result;
     };
 
-  this.m$alias_method(null, "find", "detect");
+  $opal.alias(this, "find", "detect");
 
-  $proto.m$find_index = function($yield, object) {var _a; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (object === undefined) { object = undefined; }
+  def.$find_index = $TMP_21 = function(object) {var _a; var $yield = $TMP_21.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_21.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return this.m$enum_for(null, "find_index", object)};
+    if ((_a = block) !== false && _a !== nil) {} else {return this.$enum_for("find_index", object)};
       if (object !== undefined) {
-        $yield = function (iter, obj) { return obj.m$eq$(object); };
+        $yield = function (iter, obj) { return obj.$eq$(object); };
       }
 
       var result = nil;
 
-      this.m$each_with_index(function(iter, obj, index) {
+      this.$each_with_index.$P = function(obj, index) {
         var value;
 
-        if ((value = $yield.call($context, null, obj)) === $breaker) {
+        if ((value = $yield.call($context, obj)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -1944,183 +1720,233 @@ $klass(this, nil, "Enumerable", function() {var $const = this.$const, $proto = t
 
           return $breaker;
         }
-      });
+      };
+
+      this.$each_with_index();
 
       return result;
     
   };
 
-  $proto.m$first = function($yield, number) {if (number === undefined) { number = undefined; }
+  def.$first = function(number) {
 
     
       var result = [],
           current = 0;
 
-      if (number === undefined) {
-        this.m$each(function (iter, obj) { result = obj; return $breaker; });
-      }
-      else {
-        this.m$each(function (iter, obj) {
-          if (number < current) {
-            return $breaker;
+      this.$each.$P = number === undefined
+        ? function(obj) {
+            result = obj; return $breaker;
           }
+        : function(obj) {
+            if (number <= current) {
+              return $breaker;
+            }
 
-          result.push(obj);
+            result.push(obj);
 
-          current++;
-        });
-      }
+            current++;
+          };
+
+      this.$each();
 
       return result;
     };
 
-  $proto.m$grep = function($yield, pattern) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$grep = $TMP_22 = function(pattern) {var $yield = $TMP_22.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_22.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       var result = [];
 
-      if (block !== nil) {
-        this.m$each(function (iter, obj) {
-          var value = pattern.m$eqq$(obj);
+      this.$each.$P = block !== nil
+        ? function(obj) {
+            var value = pattern.$eqq$(obj);
 
-          if (value !== false && value !== nil) {
-            if ((value = $yield.call($context, null, obj)) === $breaker) {
-              return $breaker.$v;
+            if (value !== false && value !== nil) {
+              if ((value = $yield.call($context, obj)) === $breaker) {
+                return $breaker.$v;
+              }
+
+              result.push(obj);
             }
-
-            result.push(obj);
           }
-        });
-      }
-      else {
-        this.m$each(function (iter, obj) {
-          var value = pattern.m$eqq$(obj);
+        : function(obj) {
+            var value = pattern.$eqq$(obj);
 
-          if (value !== false && value !== nil) {
-            ary.push(obj);
-          }
-        });
-      }
+            if (value !== false && value !== nil) {
+              ary.push(obj);
+            }
+          };
+
+      this.$each();
 
       return result;
     };
 
-  this.m$alias_method(null, "to_a", "entries");;this.$donate(["m$all$p", "m$any$p", "m$collect", "m$count", "m$detect", "m$drop", "m$drop_while", "m$each_with_index", "m$entries", "m$find_index", "m$first", "m$grep"]);
+  $opal.alias(this, "take", "first");
+
+  $opal.alias(this, "to_a", "entries");;this.$donate(["$all$p", "$any$p", "$collect", "$count", "$detect", "$drop", "$drop_while", "$each_with_index", "$entries", "$find_index", "$first", "$grep"]);
 }, 1);
 
-$klass(this, nil, "Comparable", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$lt$ = function($yield, other) {
-
-    return this.m$cmp$(null, other).m$eq$(null, -1);};
-
-  $proto.m$le$ = function($yield, other) {var _a, _b; 
-
-    return (_a = this.m$cmp$(null, other), _b = 0, typeof(_a) === 'number' ? _a <= _b : _a.m$le$(null, _b));};
-
-  $proto.m$eq$ = function($yield, other) {
-
-    return this.m$cmp$(null, other).m$eq$(null, 0);};
-
-  $proto.m$gt$ = function($yield, other) {
-
-    return this.m$cmp$(null, other).m$eq$(null, 1);};
-
-  $proto.m$ge$ = function($yield, other) {var _a, _b; 
-
-    return (_a = this.m$cmp$(null, other), _b = 0, typeof(_a) === 'number' ? _a >= _b : _a.m$ge$(null, _b));};
-
-  $proto.m$between$p = function($yield, min, max) {var _a, _b, _c; 
-
-    return (_a = (_b = this, _c = min, typeof(_b) === 'number' ? _b > _c : _b.m$gt$(null, _c)) ? (_c = this, _b = max, typeof(_c) === 'number' ? _c < _b : _c.m$lt$(null, _b)) : _a);};;this.$donate(["m$lt$", "m$le$", "m$eq$", "m$gt$", "m$ge$", "m$between$p"]);
-}, 1);
+$klass(this, nil, "Enumerator", function() {var $const = this.$const, def = this.$proto; 
 
 
-
-$klass(this, nil, "Enumerator", function() {var $const = this.$const, $proto = this.$proto; 
-
-
-  this.m$include(null, $const.Enumerable);$klass(this, nil, "Yielder", function() {var $const = this.$const, $proto = this.$proto; 
-    $proto.m$initialize = function($yield, block) {
+  this.$include($const.Enumerable);$klass(this, nil, "Yielder", function() {var $const = this.$const, def = this.$proto; 
+    def.$initialize = function(block) {
 
       return this.block = block;};
 
-    $proto.m$call = function($yield, block) {this.block == null && (this.block = nil);
+    def.$call = function(block) {this.block == null && (this.block = nil);
       this.call = 
 
-      block;return this.block.m$call();
+      block;return this.block.$call();
     };
 
-    $proto.m$yield = function($yield, value) {this.call == null && (this.call = nil);
+    def.$yield = function(value) {this.call == null && (this.call = nil);
 
-      return this.call.m$call(null, value);};
+      return this.call.$call(value);};
 
-    return this.m$alias_method(null, "<<", "yield");
+    return $opal.alias(this, "<<", "yield");
   }, 0);
 
-  $klass(this, nil, "Generator", function() {var $const = this.$const, $proto = this.$proto; 
-    this.m$attr_reader(null, "enumerator");
+  $klass(this, nil, "Generator", function() {var $const = this.$const, def = this.$proto; 
+    this.$attr_reader("enumerator");
 
-    $proto.m$initialize = function($yield, block) {
+    def.$initialize = function(block) {
 
-      return this.yielder = $const.Yielder.m$new(null, block);};
+      return this.yielder = $const.Yielder.$new(block);};
 
-    return $proto.m$each = function($yield) {this.yielder == null && (this.yielder = nil);var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+    return def.$each = $TMP_23 = function() {this.yielder == null && (this.yielder = nil);var $yield = $TMP_23.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_23.$P = null; }else { $yield = $no_proc, block = nil; }
 
-      return this.yielder.m$call(null, block);};
+      return this.yielder.$call(block);};
   }, 0);
 
-  $proto.m$initialize = function($yield, object, method, args) {var _a; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (object === undefined) { object = nil; }if (method === undefined) { method = "each"; }args = $slice.call(arguments, 3);
+  def.$initialize = $TMP_24 = function(object, method, args) {var _a; var $yield = $TMP_24.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_24.$P = null; }else { $yield = $no_proc, block = nil; }if (object === undefined) { object = nil; }if (method === undefined) { method = "each"; }args = $slice.call(arguments, 2);
 
-    if ($block_given) {this.object = $const.Generator.m$new(null, block);
-      method = "each";
+    if ($block_given) {this.object = $const.Generator.$new(block)
     };
 
 
 
-    if ((_a = object) !== false && _a !== nil) {} else {this.m$raise(null, $const.ArgumentError, "wrong number of argument (0 for 1+)")};this.object = 
+    if ((_a = object) !== false && _a !== nil) {} else {this.$raise($const.ArgumentError, "wrong number of argument (0 for 1+)")};this.object = 
     object;this.method = 
-    method;this.args = 
+    method;return this.args = 
+    args;};
 
-    args;return this.current = 0;
+  def.$next = function() {var result = nil, _a, _b; this.cache == null && (this.cache = nil);this.current == null && (this.current = nil);
+
+
+    this.$_init_cache();(_a = result = this.cache.$aref$(this.current), _a !== false && _a != nil ? _a : this.$raise($const.StopIteration, "iteration reached an end"));
+    this.current = (_a = this.current, _b = 1, typeof(_a) === 'number' ? _a + _b : _a.$plus$(_b));
+
+
+    return result;};
+
+  def.$next_values = function() {var result = nil, _a; 
+    result = this.$next();
+
+    if ((_a = result.$is_a$p($const.Array)) !== false && _a !== nil) {return result} else {return [result]};
   };
 
-  $proto.m$next = function($yield) {
-    return nil;};
-
-  $proto.m$each = function($yield) {var _a, _b; this.object == null && (this.object = nil);this.method == null && (this.method = nil);var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$peek = function() {var _a; this.cache == null && (this.cache = nil);this.current == null && (this.current = nil);
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return this};return (_b=this.object).m$__send__.apply(_b, [
-    (_b = block, (typeof(_b) === 'function' || _b == nil ? _b : _b.m$to_proc())), this.method].concat(this.m$args()));};
+    this.$_init_cache();return (_a = this.cache.$aref$(this.current), _a !== false && _a != nil ? _a : this.$raise($const.StopIteration, "iteration reached an end"));
+  };
 
-  $proto.m$each_with_index = function($yield) {var _a, _b; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$peel_values = function() {var result = nil, _a; 
+    result = this.$peek();
 
-    return this.m$with_index((_b = block, (typeof(_b) === 'function' || _b == nil ? _b : _b.m$to_proc())));};
+    if ((_a = result.$is_a$p($const.Array)) !== false && _a !== nil) {return result} else {return [result]};
+  };
 
-  $proto.m$with_index = function($yield, offset) {var _a; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (offset === undefined) { offset = 0; }
+  def.$rewind = function() {
 
-    if ((_a = block) !== false && _a !== nil) {return nil} else {return $const.Enumerator.m$new(null, this, "with_index", offset)};};
+    return this.$_clear_cache();};
 
-  return $proto.m$with_object = function($yield, object) {var _a; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each = $TMP_25 = function() {var _a, _b, _c; this.object == null && (this.object = nil);this.method == null && (this.method = nil);var $yield = $TMP_25.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_25.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {return nil} else {return $const.Enumerator.m$new(null, this, "with_object", object)};};
+    if ((_a = block) !== false && _a !== nil) {} else {return this};return (_a=(_b=this.object).$__send__, _a.$P = 
+    (_c = block, (typeof(_c) === 'function' || _c == nil ? _c : _c.$to_proc())), _a).apply(_b, [this.method].concat(this.$args()));};
+
+  def.$each_with_index = $TMP_26 = function() {var _a, _b, _c; var $yield = $TMP_26.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_26.$P = null; }else { $yield = $no_proc, block = nil; }
+
+    return (_a=(_b=this).$with_index, _a.$P = (_c = block, (typeof(_c) === 'function' || _c == nil ? _c : _c.$to_proc())), _a).call(_b);};
+
+  def.$with_index = $TMP_27 = function(offset) {var current = nil, _a, _b; var $yield = $TMP_27.$P;if ($yield) { var $context = $yield.$S, $block_given = true; $TMP_27.$P = null; }else { $yield = $no_proc; }if (offset === undefined) { offset = 0; }
+
+
+    if ($block_given) {} else {return $const.Enumerator.$new(this, "with_index", offset)};current = 0;
+
+    return (_a=(_b=this).$each, (_a.$P = function(args) {var _a, _b; args = $slice.call(arguments, 0);
+      if ((_a = current, _b = 
+
+      offset, typeof(_a) === 'number' ? _a >= _b : _a.$ge$(_b))) {} else {return nil;};
+
+      $yield.apply($context, args.concat([["current"]]));return current = (_b = current, _a = 1, typeof(_b) === 'number' ? _b + _a : _b.$plus$(_a));
+    }).$S = this, _a).call(_b);
+  };
+
+  def.$with_object = $TMP_28 = function(object) {var _a, _b; try {var $yield = $TMP_28.$P;if ($yield) { var $context = $yield.$S, $block_given = true; $TMP_28.$P = null; }else { $yield = $no_proc; }
+
+
+    if ($block_given) {} else {return $const.Enumerator.$new(this, "with_object", object)};return (_a=(_b=this).$each, (_a.$P = function(args) {var _a; args = $slice.call(arguments, 0);
+
+      return ((_a = $yield.apply($context, args.concat([["object"]]))) === $breaker ? _a.$t() : _a)}).$S = this, _a).call(_b);} catch (e) { if (e === $breaker) { return e.$v; }; throw e;}
+  };
+
+  def.$_init_cache = function() {var _a; this.current == null && (this.current = nil);this.cache == null && (this.cache = nil);
+    (_a = this.current, _a !== false && _a != nil ? _a : this.current = 0);
+    return (_a = this.cache, _a !== false && _a != nil ? _a : this.cache = 
+    this.$to_a());};
+
+  return def.$_clear_cache = function() {
+    this.cache = nil;
+    return this.current = nil;
+  };
 }, 0);
 
-$klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$enum_for = function($yield, method, args) {var _a; if (method === undefined) { method = "each"; }args = $slice.call(arguments, 2);
+$klass(this, nil, "Kernel", function() {var $const = this.$const, def = this.$proto; 
+  def.$enum_for = function(method, args) {var _a; if (method === undefined) { method = "each"; }args = $slice.call(arguments, 1);
 
-    return (_a=$const.Enumerator).m$new.apply(_a, [null, this, method].concat(args));};
+    return (_a=$const.Enumerator).$new.apply(_a, [this, method].concat(args));};
 
-  this.m$alias_method(null, "to_enum", "enum_for");;this.$donate(["m$enum_for"]);
+  $opal.alias(this, "to_enum", "enum_for");;this.$donate(["$enum_for"]);
 }, 1);
 
-$klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$proto; 
+$klass(this, nil, "Comparable", function() {var $const = this.$const, def = this.$proto; 
+  def.$lt$ = function(other) {
+
+    return this.$cmp$(other).$eq$(-1);};
+
+  def.$le$ = function(other) {var _a, _b; 
+
+    return (_a = this.$cmp$(other), _b = 0, typeof(_a) === 'number' ? _a <= _b : _a.$le$(_b));};
+
+  def.$eq$ = function(other) {
+
+    return this.$cmp$(other).$eq$(0);};
+
+  def.$gt$ = function(other) {
+
+    return this.$cmp$(other).$eq$(1);};
+
+  def.$ge$ = function(other) {var _a, _b; 
+
+    return (_a = this.$cmp$(other), _b = 0, typeof(_a) === 'number' ? _a >= _b : _a.$ge$(_b));};
+
+  def.$between$p = function(min, max) {var _a, _b, _c; 
+
+    return (_a = (_b = this, _c = min, typeof(_b) === 'number' ? _b > _c : _b.$gt$(_c)) ? (_c = this, _b = max, typeof(_c) === 'number' ? _c < _b : _c.$lt$(_b)) : _a);};;this.$donate(["$lt$", "$le$", "$eq$", "$gt$", "$ge$", "$between$p"]);
+}, 1);
+
+$klass(this, nil, "Array", function() {var $const = this.$const, def = this.$proto; 
 
 
-  this.m$include(null, $const.Enumerable);$defs(this, 'm$aref$', function($yield, objects) {objects = $slice.call(arguments, 1);
+  this.$include($const.Enumerable);$opal.defs(this, '$aref$', function(objects) {objects = $slice.call(arguments, 0);
     
-      var result = this.m$allocate();
+      var result = this.$allocate();
 
       result.splice.apply(result, [0, 0].concat(objects));
 
@@ -2128,8 +1954,8 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   });
 
-  $defs(this, 'm$allocate', function(
-    $yield) {
+  $opal.defs(this, '$allocate', function(
+    ) {
       var array        = [];
           array.$klass = this;
 
@@ -2137,11 +1963,11 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   });
 
-  $defs(this, 'm$new', function($yield, a) {a = $slice.call(arguments, 1);
+  $opal.defs(this, '$new', function(a) {a = $slice.call(arguments, 0);
     return [];
   });
 
-  $proto.m$and$ = function($yield, other) {
+  def.$and$ = function(other) {
 
     
       var result = [],
@@ -2168,10 +1994,10 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$mul$ = function($yield, other) {var _a; 
+  def.$mul$ = function(other) {
 
     
-      if ((typeof other === 'string')) {
+      if (typeof(other) === 'string') {
         return this.join(other);
       }
 
@@ -2184,20 +2010,20 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$plus$ = function($yield, other) {
+  def.$plus$ = function(other) {
 
     return this.slice(0).concat(other.slice(0));};
 
-  $proto.m$lshft$ = function($yield, object) {
+  def.$lshft$ = function(object) {
     this.push(object);
 
     return this;
   };
 
-  $proto.m$cmp$ = function($yield, other) {
+  def.$cmp$ = function(other) {
 
     
-      if (this.m$hash() === other.m$hash()) {
+      if (this.$hash() === other.$hash()) {
         return 0;
       }
 
@@ -2206,7 +2032,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
 
       for (var i = 0, length = this.length, tmp; i < length; i++) {
-        if ((tmp = (this[i]).m$cmp$(null, other[i])) !== 0) {
+        if ((tmp = (this[i]).$cmp$(other[i])) !== 0) {
           return tmp;
         }
       }
@@ -2214,7 +2040,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return 0;
     };
 
-  $proto.m$eq$ = function($yield, other) {
+  def.$eq$ = function(other) {
 
     
       if (this.length !== other.length) {
@@ -2222,7 +2048,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
 
       for (var i = 0, length = this.length; i < length; i++) {
-        if (!(this[i]).m$eq$(null, other[i])) {
+        if (!(this[i]).$eq$(other[i])) {
           return false;
         }
       }
@@ -2231,7 +2057,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     };
 
 
-  $proto.m$aref$ = function($yield, index, length) {if (length === undefined) { length = undefined; }
+  def.$aref$ = function(index, length) {
 
     
       var size = this.length;
@@ -2257,7 +2083,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     };
 
 
-  $proto.m$aset$ = function($yield, index, value) {
+  def.$aset$ = function(index, value) {
 
     
       var size = this.length;
@@ -2269,11 +2095,11 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this[index] = value;
     };
 
-  $proto.m$assoc = function($yield, object) {
+  def.$assoc = function(object) {
 
     
       for (var i = 0, length = this.length, item; i < length; i++) {
-        if (item = this[i], item.length && (item[0]).m$eq$(null, object)) {
+        if (item = this[i], item.length && (item[0]).$eq$(object)) {
           return item;
         }
       }
@@ -2281,7 +2107,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return nil;
     };
 
-  $proto.m$at = function($yield, index) {
+  def.$at = function(index) {
 
     
       if (index < 0) {
@@ -2295,24 +2121,24 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this[index];
     };
 
-  $proto.m$clear = function($yield) {
+  def.$clear = function() {
     this.splice(0);
 
     return this;
   };
 
-  $proto.m$clone = function($yield) {
+  def.$clone = function() {
 
     return this.slice(0);};
 
-  $proto.m$collect = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$collect = $TMP_29 = function() {var $yield = $TMP_29.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_29.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "collect")};
+    if ($block_given) {} else {return this.$enum_for("collect")};
       var result = [];
 
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2323,12 +2149,12 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$collect$b = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$collect$b = $TMP_30 = function() {var $yield = $TMP_30.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_30.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "collect!")};
+    if ($block_given) {} else {return this.$enum_for("collect!")};
       for (var i = 0, length = this.length, val; i < length; i++) {
-        if ((val = $yield.call($context, null, this[i])) === $breaker) {
+        if ((val = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2339,7 +2165,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$compact = function($yield) {
+  def.$compact = function() {
 
     
       var result = [];
@@ -2353,7 +2179,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$compact$b = function($yield) {
+  def.$compact$b = function() {
 
     
       var original = this.length;
@@ -2370,7 +2196,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.length === original ? nil : this;
     };
 
-  $proto.m$concat = function($yield, other) {
+  def.$concat = function(other) {
     
       for (var i = 0, length = other.length; i < length; i++) {
         this.push(other[i]);
@@ -2380,7 +2206,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$count = function($yield, object) {if (object === undefined) { object = undefined; }
+  def.$count = function(object) {
 
     
       if (object === undefined) {
@@ -2390,7 +2216,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       var result = 0;
 
       for (var i = 0, length = this.length; i < length; i++) {
-        if ((this[i]).m$eq$(null, object)) {
+        if ((this[i]).$eq$(object)) {
           result++;
         }
       }
@@ -2398,13 +2224,13 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$delete = function($yield, object) {
+  def.$delete = function(object) {
 
     
       var original = this.length;
 
       for (var i = 0, length = original; i < length; i++) {
-        if ((this[i]).m$eq$(null, object)) {
+        if ((this[i]).$eq$(object)) {
           this.splice(i, 1);
 
           length--;
@@ -2415,7 +2241,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.length === original ? nil : object;
     };
 
-  $proto.m$delete_at = function($yield, index) {
+  def.$delete_at = function(index) {
 
     
       if (index < 0) {
@@ -2433,12 +2259,12 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$delete_if = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$delete_if = $TMP_31 = function() {var $yield = $TMP_31.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_31.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "delete_if")};
+    if ($block_given) {} else {return this.$enum_for("delete_if")};
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2454,16 +2280,16 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$drop = function($yield, number) {
+  def.$drop = function(number) {
 
-    return number > this.length ? [] : this.slice(number);};
+    return this.slice(number);};
 
-  $proto.m$drop_while = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$drop_while = $TMP_32 = function() {var $yield = $TMP_32.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_32.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "drop_while")};
+    if ($block_given) {} else {return this.$enum_for("drop_while")};
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2476,12 +2302,12 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$each = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each = $TMP_33 = function() {var $yield = $TMP_33.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_33.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "each")};
+    if ($block_given) {} else {return this.$enum_for("each")};
       for (var i = 0, length = this.length; i < length; i++) {
-        if ($yield.call($context, null, this[i]) === $breaker) {
+        if ($yield.call($context, this[i]) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -2490,12 +2316,12 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$each_index = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each_index = $TMP_34 = function() {var $yield = $TMP_34.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_34.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "each_index")};
+    if ($block_given) {} else {return this.$enum_for("each_index")};
       for (var i = 0, length = this.length; i < length; i++) {
-        if ($yield.call($context, null, i) === $breaker) {
+        if ($yield.call($context, i) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -2504,12 +2330,12 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$each_with_index = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each_with_index = $TMP_35 = function() {var $yield = $TMP_35.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_35.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "each_with_index")};
+    if ($block_given) {} else {return this.$enum_for("each_with_index")};
       for (var i = 0, length = this.length; i < length; i++) {
-        if ($yield.call($context, null, this[i], i) === $breaker) {
+        if ($yield.call($context, this[i], i) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -2518,11 +2344,11 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$empty$p = function($yield) {
+  def.$empty$p = function() {
 
     return this.length === 0;};
 
-  $proto.m$fetch = function($yield, index, defaults) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (defaults === undefined) { defaults = undefined; }
+  def.$fetch = $TMP_36 = function(index, defaults) {var $yield = $TMP_36.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_36.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       var original = index;
@@ -2540,13 +2366,13 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
 
       if (block !== nil) {
-        return $yield.call($context, null, original);
+        return $yield.call($context, original);
       }
 
       raise(RubyIndexError, 'Array#fetch');
     };
 
-  $proto.m$first = function($yield, count) {if (count === undefined) { count = undefined; }
+  def.$first = function(count) {
 
     
       if (count !== undefined) {
@@ -2556,7 +2382,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.length === 0 ? nil : this[0];
     };
 
-  $proto.m$flatten = function($yield, level) {if (level === undefined) { level = undefined; }
+  def.$flatten = function(level) {
 
     
       var result = [];
@@ -2566,13 +2392,13 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
 
         if (item.$flags & T_ARRAY) {
           if (level === undefined) {
-            result = result.concat((item).m$flatten());
+            result = result.concat((item).$flatten());
           }
           else if (level === 0) {
             result.push(item);
           }
           else {
-            result = result.concat((item).m$flatten(null, level - 1));
+            result = result.concat((item).$flatten(level - 1));
           }
         }
         else {
@@ -2583,23 +2409,16 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$flatten$b = function($yield, level) {if (level === undefined) { level = undefined; }
+  def.$flatten$b = function(level) {
 
     
-      var flattenable = false;
+      var size = this.length;
+      this.$replace(this.$flatten(level));
 
-      for (var i = 0, length = this.length; i < length; i++) {
-        if (this[i].$flags & T_ARRAY) {
-          flattenable = true;
-
-          break;
-        }
-      }
-
-      return flattenable ? this.m$replace(null, this.m$flatten(null, level)) : nil;
+      return size === this.length ? nil : this;
     };
 
-  $proto.m$grep = function($yield, pattern) {
+  def.$grep = function(pattern) {
 
     
       var result = [];
@@ -2607,7 +2426,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       for (var i = 0, length = this.length, item; i < length; i++) {
         item = this[i];
 
-        if (pattern.m$eqq$(null, item)) {
+        if (pattern.$eqq$(item)) {
           result.push(item);
         }
       }
@@ -2615,15 +2434,15 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$hash = function($yield) {
+  def.$hash = function() {
 
     return this.$id || (this.$id = unique_id++);};
 
-  $proto.m$include$p = function($yield, member) {
+  def.$include$p = function(member) {
 
     
       for (var i = 0, length = this.length; i < length; i++) {
-        if ((this[i]).m$eq$(null, member)) {
+        if ((this[i]).$eq$(member)) {
           return true;
         }
       }
@@ -2631,13 +2450,13 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return false;
     };
 
-  $proto.m$index = function($yield, object) {var _a, _b; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (object === undefined) { object = undefined; }
-    if ((_a = (_b = $block_given ? object.m$eq$(
+  def.$index = $TMP_37 = function(object) {var _a, _b; var $yield = $TMP_37.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_37.$P = null; }else { $yield = $no_proc, block = nil; }
+    if ((_a = (_b = $block_given ? object.$eq$(
 
-    null, undefined) : _b)) !== false && _a !== nil) {} else {return this.m$enum_for(null, "index")};
+    undefined) : _b)) !== false && _a !== nil) {} else {return this.$enum_for("index")};
       if (block !== nil) {
         for (var i = 0, length = this.length, value; i < length; i++) {
-          if ((value = $yield.call($context, null, this[i])) === $breaker) {
+          if ((value = $yield.call($context, this[i])) === $breaker) {
             return $breaker.$v;
           }
 
@@ -2648,7 +2467,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
       else {
         for (var i = 0, length = this.length; i < length; i++) {
-          if ((this[i]).m$eq$(null, object)) {
+          if ((this[i]).$eq$(object)) {
             return i;
           }
         }
@@ -2658,10 +2477,10 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$inject = function($yield, initial) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (initial === undefined) { initial = undefined; }
+  def.$inject = $TMP_38 = function(initial) {var $yield = $TMP_38.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_38.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "inject")};
+    if ($block_given) {} else {return this.$enum_for("inject")};
       var result, i;
 
       if (initial === undefined) {
@@ -2674,7 +2493,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
 
       for (var length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, result, this[i])) === $breaker) {
+        if ((value = $yield.call($context, result, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2685,7 +2504,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$insert = function($yield, index, objects) {objects = $slice.call(arguments, 2);
+  def.$insert = function(index, objects) {objects = $slice.call(arguments, 1);
     
       if (objects.length > 0) {
         if (index < 0) {
@@ -2708,35 +2527,35 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$inspect = function($yield) {
+  def.$inspect = function() {
 
     
       var inspect = [];
 
       for (var i = 0, length = this.length; i < length; i++) {
-        inspect.push((this[i]).m$inspect());
+        inspect.push((this[i]).$inspect());
       }
 
       return '[' + inspect.join(', ') + ']';
     };
 
-  $proto.m$join = function($yield, sep) {if (sep === undefined) { sep = ""; }
+  def.$join = function(sep) {if (sep === undefined) { sep = ""; }
 
     
       var result = [];
 
       for (var i = 0, length = this.length; i < length; i++) {
-        result.push((this[i]).m$to_s());
+        result.push((this[i]).$to_s());
       }
 
       return result.join(sep);
     };
 
-  $proto.m$keep_if = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$keep_if = $TMP_39 = function() {var $yield = $TMP_39.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_39.$P = null; }else { $yield = $no_proc, block = nil; }
 
-    if ($block_given) {} else {return this.m$enum_for(null, "keep_if")};
+    if ($block_given) {} else {return this.$enum_for("keep_if")};
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2752,7 +2571,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$last = function($yield, count) {if (count === undefined) { count = undefined; }
+  def.$last = function(count) {
 
     
       var length = this.length;
@@ -2771,15 +2590,15 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.slice(length - count, length);
     };
 
-  $proto.m$length = function($yield) {
+  def.$length = function() {
 
     return this.length;};
 
-  this.m$alias_method(null, "map", "collect");
+  $opal.alias(this, "map", "collect");
 
-  this.m$alias_method(null, "map!", "collect!");
+  $opal.alias(this, "map!", "collect!");
 
-  $proto.m$pop = function($yield, count) {if (count === undefined) { count = undefined; }
+  def.$pop = function(count) {
 
     
       var length = this.length;
@@ -2795,7 +2614,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return count > length ? this.splice(0) : this.splice(length - count, length);
     };
 
-  $proto.m$push = function($yield, objects) {objects = $slice.call(arguments, 1);
+  def.$push = function(objects) {objects = $slice.call(arguments, 0);
     
       for (var i = 0, length = objects.length; i < length; i++) {
         this.push(objects[i]);
@@ -2805,14 +2624,14 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$rassoc = function($yield, object) {
+  def.$rassoc = function(object) {
 
     
       for (var i = 0, length = this.length, item; i < length; i++) {
         item = this[i];
 
         if (item.length && item[1] !== undefined) {
-          if ((item[1]).m$eq$(null, object)) {
+          if ((item[1]).$eq$(object)) {
             return item;
           }
         }
@@ -2821,14 +2640,14 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return nil;
     };
 
-  $proto.m$reject = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$reject = $TMP_40 = function() {var $yield = $TMP_40.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_40.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "reject")};
+    if ($block_given) {} else {return this.$enum_for("reject")};
       var result = [];
 
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2840,14 +2659,14 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$reject$b = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$reject$b = $TMP_41 = function() {var $yield = $TMP_41.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_41.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "reject!")};
+    if ($block_given) {} else {return this.$enum_for("reject!")};
       var original = this.length;
 
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2863,34 +2682,41 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$replace = function($yield, other) {
+  def.$replace = function(other) {
 
-    this.m$clear();
-    return this.m$concat(null, other);};
+    
+      this.splice(0);
+      this.push.apply(this, other);
+      return this;
+    };
 
-  $proto.m$reverse = function($yield) {
+  def.$reverse = function() {
 
     return this.reverse();};
 
-  $proto.m$reverse$b = function($yield) {
+  def.$reverse$b = function() {
 
-    return this.m$replace(null, this.m$reverse());};
+    
+      this.splice(0);
+      this.push.apply(this, this.$reverse());
+      return this;
+    };
 
-  $proto.m$reverse_each = function($yield) {var _a, _b; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$reverse_each = $TMP_42 = function() {var _a, _b, _c; var $yield = $TMP_42.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_42.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "reverse_each")};this.m$reverse().m$each(
+    if ($block_given) {} else {return this.$enum_for("reverse_each")};(_a=(_b=this.$reverse()).$each, _a.$P = 
 
-    (_b = block, (typeof(_b) === 'function' || _b == nil ? _b : _b.m$to_proc())));return this;
+    (_c = block, (typeof(_c) === 'function' || _c == nil ? _c : _c.$to_proc())), _a).call(_b);return this;
   };
 
-  $proto.m$rindex = function($yield, object) {var _a, _b; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (object === undefined) { object = undefined; }
-    if ((_a = (_b = $block_given ? object.m$eq$(
+  def.$rindex = $TMP_43 = function(object) {var _a, _b; var $yield = $TMP_43.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_43.$P = null; }else { $yield = $no_proc, block = nil; }
+    if ((_a = (_b = $block_given ? object.$eq$(
 
-    null, undefined) : _b)) !== false && _a !== nil) {} else {return this.m$enum_for(null, "rindex")};
+    undefined) : _b)) !== false && _a !== nil) {} else {return this.$enum_for("rindex")};
       if (block !== nil) {
         for (var i = this.length - 1, value; i >= 0; i--) {
-          if ((value = $yield.call($context, null, this[i])) === $breaker) {
+          if ((value = $yield.call($context, this[i])) === $breaker) {
             return $breaker.$v;
           }
 
@@ -2901,7 +2727,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
       else {
         for (var i = this.length - 1; i >= 0; i--) {
-          if ((this[i]).m$eq$(null, object)) {
+          if ((this[i]).$eq$(object)) {
             return i;
           }
         }
@@ -2911,16 +2737,16 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$select = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$select = $TMP_44 = function() {var $yield = $TMP_44.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_44.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "select")};
+    if ($block_given) {} else {return this.$enum_for("select")};
       var result = [];
 
       for (var i = 0, length = this.length, item, value; i < length; i++) {
         item = this[i];
 
-        if ((value = $yield.call($context, null, item)) === $breaker) {
+        if ((value = $yield.call($context, item)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2933,15 +2759,15 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$select$b = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$select$b = $TMP_45 = function() {var $yield = $TMP_45.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_45.$P = null; }else { $yield = $no_proc, block = nil; }
 
-    if ($block_given) {} else {return this.m$enum_for(null, "select!")};
+    if ($block_given) {} else {return this.$enum_for("select!")};
       var original = this.length;
 
       for (var i = 0, length = original, item, value; i < length; i++) {
         item = this[i];
 
-        if ((value = $yield.call($context, null, item)) === $breaker) {
+        if ((value = $yield.call($context, item)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2957,15 +2783,15 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$shift = function($yield, count) {if (count === undefined) { count = undefined; }
+  def.$shift = function(count) {
 
     return count === undefined ? this.shift() : this.splice(0, count);};
 
-  this.m$alias_method(null, "size", "length");
+  $opal.alias(this, "size", "length");
 
-  this.m$alias_method(null, "slice", "[]");
+  $opal.alias(this, "slice", "[]");
 
-  $proto.m$slice$b = function($yield, index, length) {if (length === undefined) { length = undefined; }
+  def.$slice$b = function(index, length) {
 
     
       if (index < 0) {
@@ -2983,20 +2809,20 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.splice(index, 1)[0];
     };
 
-  $proto.m$take = function($yield, count) {
+  def.$take = function(count) {
 
     return this.slice(0, count);};
 
-  $proto.m$take_while = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$take_while = $TMP_46 = function() {var $yield = $TMP_46.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_46.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "take_while")};
+    if ($block_given) {} else {return this.$enum_for("take_while")};
       var result = [];
 
       for (var i = 0, length = this.length, item, value; i < length; i++) {
         item = this[i];
 
-        if ((value = $yield.call($context, null, item)) === $breaker) {
+        if ((value = $yield.call($context, item)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -3011,19 +2837,15 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$to_a = function($yield) {
+  def.$to_a = function() {
 
     return this;};
 
-  this.m$alias_method(null, "to_ary", "to_a");
+  $opal.alias(this, "to_ary", "to_a");
 
-  $proto.m$to_native = function($yield) {var _a; 
+  $opal.alias(this, "to_s", "inspect");
 
-    return this.m$map((_a=function(_$, obj) {var _a, _b; if (obj === undefined) {obj = nil; }if ((_a = (!!(_b = obj, _b != null && _b.$klass))) !== false && _a !== nil) {return obj.m$to_native()} else {return obj}},_a.$S=this,_a));};
-
-  this.m$alias_method(null, "to_s", "inspect");
-
-  $proto.m$uniq = function($yield) {
+  def.$uniq = function() {
 
     
       var result = [],
@@ -3031,7 +2853,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
 
       for (var i = 0, length = this.length, item, hash; i < length; i++) {
         item = this[i];
-        hash = this.m$item().m$hash();
+        hash = this.$item().$hash();
 
         if (!seen[hash]) {
           seen[hash] = true;
@@ -3043,7 +2865,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$uniq$b = function($yield) {
+  def.$uniq$b = function() {
 
     
       var original = this.length,
@@ -3051,7 +2873,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
 
       for (var i = 0, length = original, item, hash; i < length; i++) {
         item = this[i];
-        hash = this.m$item().m$hash();
+        hash = this.$item().$hash();
 
         if (!seen[hash]) {
           seen[hash] = true;
@@ -3067,7 +2889,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.length === original ? nil : this;
     };
 
-  return $proto.m$unshift = function($yield, objects) {objects = $slice.call(arguments, 1);
+  return def.$unshift = function(objects) {objects = $slice.call(arguments, 0);
 
     
       for (var i = 0, length = objects.length; i < length; i++) {
@@ -3078,18 +2900,18 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     };
 }, 0);
 
-$klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$proto; 
+$klass(this, nil, "Hash", function() {var $const = this.$const, def = this.$proto; 
 
 
-  this.m$include(null, $const.Enumerable);$defs(this, 'm$aref$', function($yield, objs) {objs = $slice.call(arguments, 1);
+  this.$include($const.Enumerable);$opal.defs(this, '$aref$', function(objs) {objs = $slice.call(arguments, 0);
     return $opal.hash.apply(null, objs);
   });
 
-  $defs(this, 'm$allocate', function(
-    $yield) {return new $opal.hash();
+  $opal.defs(this, '$allocate', function(
+    ) {return new $opal.hash();
   });
 
-  $defs(this, 'm$new', function($yield, defaults) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (defaults === undefined) { defaults = undefined; }
+  $opal.defs(this, '$new', $TMP_47 = function(defaults) {var $yield = $TMP_47.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_47.$P = null; }else { $yield = $no_proc, block = nil; }
     
       var hash = new $opal.hash();
 
@@ -3104,7 +2926,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
     
   });
 
-  $proto.m$eq$ = function($yield, other) {var _a; 
+  def.$eq$ = function(other) {var _a; 
 
     
       if (this === other) {
@@ -3126,7 +2948,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
         var obj  = map[assoc][1],
             obj2 = map2[assoc][1];
 
-        if (((_a = (obj).m$eq$(null, obj2)) === false || _a === nil)) {
+        if (((_a = (obj).$eq$(obj2)) === false || _a === nil)) {
           return false;
         }
       }
@@ -3134,10 +2956,10 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return true;
     };
 
-  $proto.m$aref$ = function($yield, key) {
+  def.$aref$ = function(key) {
 
     
-      var hash = key.m$hash(),
+      var hash = key.$hash(),
           bucket;
 
       if (bucket = this.map[hash]) {
@@ -3147,22 +2969,22 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return this.none;
     };
 
-  $proto.m$aset$ = function($yield, key, value) {
+  def.$aset$ = function(key, value) {
 
     
-      var hash       = key.m$hash();
+      var hash       = key.$hash();
       this.map[hash] = [key, value];
 
       return value;
     };
 
-  $proto.m$assoc = function($yield, object) {
+  def.$assoc = function(object) {
 
     
       for (var assoc in this.map) {
         var bucket = this.map[assoc];
 
-        if ((bucket[0]).m$eq$(null, object)) {
+        if ((bucket[0]).$eq$(object)) {
           return [bucket[0], bucket[1]];
         }
       }
@@ -3170,7 +2992,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return nil;
     };
 
-  $proto.m$clear = function($yield) {
+  def.$clear = function() {
 
     
       this.map = {};
@@ -3178,7 +3000,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return this;
     };
 
-  $proto.m$clone = function($yield) {
+  def.$clone = function() {
 
     
       var result = new $opal.hash(),
@@ -3192,27 +3014,27 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$default = function($yield) {
+  def.$default = function() {
 
     return this.none;};
 
-  $proto.m$default$e = function($yield, object) {
+  def.$default$e = function(object) {
 
     return this.none = object;};
 
-  $proto.m$default_proc = function($yield) {
+  def.$default_proc = function() {
 
     return this.proc;};
 
-  $proto.m$default_proc$e = function($yield, proc) {
+  def.$default_proc$e = function(proc) {
 
     return this.proc = proc;};
 
-  $proto.m$delete = function($yield, key) {
+  def.$delete = function(key) {
 
     
       var map  = this.map,
-          hash = key.m$hash(),
+          hash = key.$hash(),
           result;
 
       if (result = map[hash]) {
@@ -3224,17 +3046,17 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$delete_if = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$delete_if = $TMP_48 = function() {var $yield = $TMP_48.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_48.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "delete_if")};
+    if ($block_given) {} else {return this.$enum_for("delete_if")};
       var map = this.map;
 
       for (var assoc in map) {
         var bucket = map[assoc],
             value;
 
-        if ((value = $yield.call($context, null, bucket[0], bucket[1])) === $breaker) {
+        if ((value = $yield.call($context, bucket[0], bucket[1])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -3247,16 +3069,16 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
     
   };
 
-  $proto.m$each = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each = $TMP_49 = function() {var $yield = $TMP_49.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_49.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "each")};
+    if ($block_given) {} else {return this.$enum_for("each")};
       var map = this.map;
 
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        if ($yield.call($context, null, bucket[0], bucket[1]) === $breaker) {
+        if ($yield.call($context, bucket[0], bucket[1]) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3265,16 +3087,16 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
     
   };
 
-  $proto.m$each_key = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each_key = $TMP_50 = function() {var $yield = $TMP_50.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_50.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "each_key")};
+    if ($block_given) {} else {return this.$enum_for("each_key")};
       var map = this.map;
 
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        if ($yield.call($context, null, bucket[0]) === $breaker) {
+        if ($yield.call($context, bucket[0]) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3283,18 +3105,18 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
     
   };
 
-  this.m$alias_method(null, "each_pair", "each");
+  $opal.alias(this, "each_pair", "each");
 
-  $proto.m$each_value = function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each_value = $TMP_51 = function() {var $yield = $TMP_51.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_51.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "each_value")};
+    if ($block_given) {} else {return this.$enum_for("each_value")};
       var map = this.map;
 
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        if ($yield.call($context, null, bucket[1]) === $breaker) {
+        if ($yield.call($context, bucket[1]) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3303,7 +3125,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
     
   };
 
-  $proto.m$empty$p = function($yield) {
+  def.$empty$p = function() {
 
     
       for (var assoc in this.map) {
@@ -3313,17 +3135,17 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return true;
     };
 
-  this.m$alias_method(null, "eql?", "==");
+  $opal.alias(this, "eql?", "==");
 
-  $proto.m$fetch = function($yield, key, defaults) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (defaults === undefined) { defaults = undefined; }
+  def.$fetch = $TMP_52 = function(key, defaults) {var $yield = $TMP_52.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_52.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
-      var bucket = this.map[key.m$hash()];
+      var bucket = this.map[key.$hash()];
 
       if (block !== nil) {
         var value;
 
-        if ((value = $yield.call($context, null, key)) === $breaker) {
+        if ((value = $yield.call($context, key)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -3337,7 +3159,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       raise(RubyKeyError, 'key not found');
     };
 
-  $proto.m$flatten = function($yield, level) {var _a, _b; if (level === undefined) { level = undefined; }
+  def.$flatten = function(level) {var _a, _b; 
 
     
       var map    = this.map,
@@ -3355,7 +3177,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
             result.push(value);
           }
           else {
-            result = result.concat(this.m$value().m$flatten(null, (_a = level, _b = 1, typeof(_a) === 'number' ? _a - _b : _a.m$minus$(null, _b))));
+            result = result.concat((value).$flatten((_a = level, _b = 1, typeof(_a) === 'number' ? _a - _b : _a.$minus$(_b))));
           }
         }
         else {
@@ -3366,15 +3188,15 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$has_key$p = function($yield, key) {
+  def.$has_key$p = function(key) {
 
-    return !!this.map[key.m$hash()];};
+    return !!this.map[key.$hash()];};
 
-  $proto.m$has_value$p = function($yield, value) {
+  def.$has_value$p = function(value) {
 
     
       for (var assoc in this.map) {
-        if ((this.map[assoc][1]).m$eq$(null, value)) {
+        if ((this.map[assoc][1]).$eq$(value)) {
           return true;
         }
       }
@@ -3382,11 +3204,11 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return false;
     };
 
-  $proto.m$hash = function($yield) {
+  def.$hash = function() {
 
     return this.$id;};
 
-  $proto.m$inspect = function($yield) {
+  def.$inspect = function() {
 
     
       var inspect = [],
@@ -3395,12 +3217,12 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        inspect.push((bucket[0]).m$inspect() + '=>' + (bucket[1]).m$inspect());
+        inspect.push((bucket[0]).$inspect() + '=>' + (bucket[1]).$inspect());
       }
       return '{' + inspect.join(', ') + '}';
     };
 
-  $proto.m$invert = function($yield) {
+  def.$invert = function() {
 
     
       var result = $opal.hash(),
@@ -3410,19 +3232,19 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        map2[(bucket[1]).m$hash()] = [bucket[0], bucket[1]];
+        map2[(bucket[1]).$hash()] = [bucket[0], bucket[1]];
       }
 
       return result;
     };
 
-  $proto.m$key = function($yield, object) {
+  def.$key = function(object) {
 
     
       for (var assoc in this.map) {
         var bucket = this.map[assoc];
 
-        if (object.m$eq$(null, bucket[1])) {
+        if (object.$eq$(bucket[1])) {
           return bucket[0];
         }
       }
@@ -3430,9 +3252,9 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return nil;
     };
 
-  this.m$alias_method(null, "key?", "has_key?");
+  $opal.alias(this, "key?", "has_key?");
 
-  $proto.m$keys = function($yield) {
+  def.$keys = function() {
 
     
       var result = [];
@@ -3444,7 +3266,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$length = function($yield) {
+  def.$length = function() {
 
     
       var result = 0;
@@ -3456,9 +3278,9 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  this.m$alias_method(null, "member?", "has_key?");
+  $opal.alias(this, "member?", "has_key?");
 
-  $proto.m$merge = function($yield, other) {
+  def.$merge = function(other) {
 
     
       var result = $opal.hash(),
@@ -3482,7 +3304,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$merge$b = function($yield, other) {
+  def.$merge$b = function(other) {
 
     
       var map  = this.map,
@@ -3497,7 +3319,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return this;
     };
 
-  $proto.m$rassoc = function($yield, object) {
+  def.$rassoc = function(object) {
 
     
       var map = this.map;
@@ -3505,7 +3327,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        if ((bucket[1]).m$eq$(null, object)) {
+        if ((bucket[1]).$eq$(object)) {
           return [bucket[0], bucket[1]];
         }
       }
@@ -3513,7 +3335,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return nil;
     };
 
-  $proto.m$replace = function($yield, other) {
+  def.$replace = function(other) {
 
     
       var map = this.map = {};
@@ -3527,9 +3349,9 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return this;
     };
 
-  this.m$alias_method(null, "size", "length");
+  $opal.alias(this, "size", "length");
 
-  $proto.m$to_a = function($yield) {
+  def.$to_a = function() {
 
     
       var map    = this.map,
@@ -3544,31 +3366,15 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$to_hash = function($yield) {
+  def.$to_hash = function() {
 
     return this;};
 
-  $proto.m$to_native = function($yield) {var _a, _b; 
+  $opal.alias(this, "to_s", "inspect");
 
-    
-      var map    = this.map,
-          result = {};
+  $opal.alias(this, "update", "merge!");
 
-      for (var assoc in map) {
-        var key   = map[assoc][0],
-            value = map[assoc][1];
-
-        result[key] = (function() { if ((_a = (!!(_b = value, _b != null && _b.$klass))) !== false && _a !== nil) {return (value).m$to_native()} else {return value;}; return nil; }).call(this);
-      }
-
-      return result;
-    };
-
-  this.m$alias_method(null, "to_s", "inspect");
-
-  this.m$alias_method(null, "update", "merge!");
-
-  return $proto.m$values = function($yield) {
+  return def.$values = function() {
 
     
       var map    = this.map,
@@ -3582,50 +3388,50 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
     };
 }, 0);
 
-$klass(this, nil, "String", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$new', function($yield, str) {if (str === undefined) { str = ""; }
-    return str.m$to_s()
+$klass(this, nil, "String", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$new', function(str) {if (str === undefined) { str = ""; }
+    return str.$to_s()
   });
 
-  $proto.m$lt$ = function($yield, other) {
+  def.$lt$ = function(other) {
 
     return this < other;};
 
-  $proto.m$le$ = function($yield, other) {
+  def.$le$ = function(other) {
 
     return this <= other;};
 
-  $proto.m$gt$ = function($yield, other) {
+  def.$gt$ = function(other) {
 
     return this > other;};
 
-  $proto.m$ge$ = function($yield, other) {
+  def.$ge$ = function(other) {
 
     return this >= other;};
 
-  $proto.m$plus$ = function($yield, other) {
+  def.$plus$ = function(other) {
 
     return this + other;};
 
-  $proto.m$aref$ = function($yield, index, length) {
+  def.$aref$ = function(index, length) {
 
     return this.substr(index, length);};
 
-  $proto.m$eq$ = function($yield, other) {
+  def.$eq$ = function(other) {
 
     return this.valueOf() === other.valueOf();};
 
-  $proto.m$match$ = function($yield, other) {
+  def.$match$ = function(other) {
 
     
       if (typeof other === 'string') {
         raise(RubyTypeError, 'string given');
       }
 
-      return other.m$match$(null, this);
+      return other.$match$(this);
     };
 
-  $proto.m$cmp$ = function($yield, other) {
+  def.$cmp$ = function(other) {
 
     
       if (typeof other !== 'string') {
@@ -3635,11 +3441,11 @@ $klass(this, nil, "String", function() {var $const = this.$const, $proto = this.
       return this > other ? 1 : (this < other ? -1 : 0);
     };
 
-  $proto.m$capitalize = function($yield) {
+  def.$capitalize = function() {
 
     return this.charAt(0).toUpperCase() + this.substr(1).toLowerCase();};
 
-  $proto.m$casecmp = function($yield, other) {
+  def.$casecmp = function(other) {
 
     
       if (typeof other !== 'string') {
@@ -3652,81 +3458,101 @@ $klass(this, nil, "String", function() {var $const = this.$const, $proto = this.
       return a > b ? 1 : (a < b ? -1 : 0);
     };
 
-  $proto.m$downcase = function($yield) {
+  def.$downcase = function() {
 
     return this.toLowerCase();};
 
-  $proto.m$end_with$p = function($yield, suffix) {
+  def.$end_with$p = function(suffix) {
 
     return this.lastIndexOf(suffix) === this.length - suffix.length;};
 
-  $proto.m$empty$p = function($yield) {
+  def.$empty$p = function() {
 
     return this.length === 0;};
 
-  $proto.m$gsub = function($yield, pattern, replace) {var _a, _b; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (replace === undefined) { replace = undefined; }
+  def.$gsub = $TMP_53 = function(pattern, replace) {var _a, _b, _c; var $yield = $TMP_53.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_53.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       var re = pattern.toString();
           re = re.substr(1, re.lastIndexOf('/') - 1);
           re = new RegExp(re, 'g');
 
-      return this.m$sub((_b = block, (typeof(_b) === 'function' || _b == nil ? _b : _b.m$to_proc())), this.m$re(), replace);
+      return (_a=(_b=this).$sub, _a.$P = (_c = block, (typeof(_c) === 'function' || _c == nil ? _c : _c.$to_proc())), _a).call(_b, this.$re(), replace);
     };
 
-  $proto.m$hash = function($yield) {
+  def.$hash = function() {
 
     return this.toString();};
 
-  $proto.m$include$p = function($yield, other) {
+  def.$include$p = function(other) {
 
     return this.indexOf(other) !== -1;};
 
-  $proto.m$index = function($yield, substr) {
+  def.$index = function(substr) {
 
     
       var result = this.indexOf(substr);
       return result === -1 ? nil : result
     };
 
-  $proto.m$inspect = function($yield) {
+  def.$inspect = function() {
 
-    return string_inspect(this);};
+    
+      var escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
+          meta      = {
+            '\b': '\\b',
+            '\t': '\\t',
+            '\n': '\\n',
+            '\f': '\\f',
+            '\r': '\\r',
+            '"' : '\\"',
+            '\\': '\\\\'
+          };
 
-  $proto.m$intern = function($yield) {
+      escapable.lastIndex = 0;
+
+      return escapable.test(this) ? '"' + this.replace(escapable, function(a) {
+        var c = meta[a];
+
+        return typeof c === 'string' ? c :
+          '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
+      }) + '"' : '"' + this + '"';
+  };
+
+  def.$intern = function() {
 
     return this;};
 
-  $proto.m$length = function($yield) {
+  def.$length = function() {
 
     return this.length;};
 
-  $proto.m$lstrip = function($yield) {
+  def.$lstrip = function() {
 
     return this.replace(/^s*/, '');};
 
-  $proto.m$next = function($yield) {
+  def.$next = function() {
 
     return String.fromCharCode(this.charCodeAt(0));};
 
-  $proto.m$reverse = function($yield) {
+  def.$reverse = function() {
 
     return this.split('').reverse().join('');};
 
-  $proto.m$split = function($yield, split, limit) {if (limit === undefined) { limit = undefined; }
+  def.$split = function(split, limit) {
 
     return this.split(split, limit);};
 
-  $proto.m$start_with$p = function($yield, prefix) {
+  def.$start_with$p = function(prefix) {
 
     return this.indexOf(prefix) === 0;};
 
-  $proto.m$sub = function($yield, pattern, replace) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (replace === undefined) { replace = undefined; }
+  def.$sub = $TMP_54 = function(pattern, replace) {var $yield = $TMP_54.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_54.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       if (block !== nil) {
         return this.replace(pattern, function(str) {
-          return $yield.call($context, null, str);
+          return $yield.call($context, str);
         });
       }
       else {
@@ -3734,141 +3560,137 @@ $klass(this, nil, "String", function() {var $const = this.$const, $proto = this.
       }
     };
 
-  this.m$alias_method(null, "succ", "next");
+  $opal.alias(this, "succ", "next");
 
-  $proto.m$to_f = function($yield) {
+  def.$to_f = function() {
 
     return parseFloat(this);};
 
-  $proto.m$to_i = function($yield, base) {if (base === undefined) { base = 10; }
+  def.$to_i = function(base) {if (base === undefined) { base = 10; }
 
     return parseInt(this, base);};
 
-  $proto.m$to_native = function($yield) {
-
-    return this.valueOf();};
-
-  $proto.m$to_proc = function($yield) {
+  def.$to_proc = function() {
 
     
       var self = this;
-      return function(iter, arg) { return arg['m$' + self](); };
+      return function(iter, arg) { return arg['$' + self](); };
     };
 
-  $proto.m$to_s = function($yield) {
+  def.$to_s = function() {
 
     return this.toString();};
 
-  this.m$alias_method(null, "to_sym", "intern");
+  $opal.alias(this, "to_sym", "intern");
 
-  return $proto.m$upcase = function($yield) {
+  return def.$upcase = function() {
 
     return this.toUpperCase();};
 }, 0);
 
 $const.Symbol = 
 
-$const.String;$klass(this, nil, "Numeric", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$plus$ = function($yield, other) {
+$const.String;$klass(this, nil, "Numeric", function() {var $const = this.$const, def = this.$proto; 
+  def.$plus$ = function(other) {
 
     return this + other;};
 
-  $proto.m$minus$ = function($yield, other) {
+  def.$minus$ = function(other) {
 
     return this - other;};
 
-  $proto.m$mul$ = function($yield, other) {
+  def.$mul$ = function(other) {
 
     return this * other;};
 
-  $proto.m$div$ = function($yield, other) {
+  def.$div$ = function(other) {
 
     return this / other;};
 
-  $proto.m$mod$ = function($yield, other) {
+  def.$mod$ = function(other) {
 
     return this % other;};
 
-  $proto.m$and$ = function($yield, other) {
+  def.$and$ = function(other) {
 
     return this & other;};
 
-  $proto.m$or$ = function($yield, other) {
+  def.$or$ = function(other) {
 
     return this | other;};
 
-  $proto.m$xor$ = function($yield, other) {
+  def.$xor$ = function(other) {
 
     return this ^ other;};
 
-  $proto.m$lt$ = function($yield, other) {
+  def.$lt$ = function(other) {
 
     return this < other;};
 
-  $proto.m$le$ = function($yield, other) {
+  def.$le$ = function(other) {
 
     return this <= other;};
 
-  $proto.m$gt$ = function($yield, other) {
+  def.$gt$ = function(other) {
 
     return this > other;};
 
-  $proto.m$ge$ = function($yield, other) {
+  def.$ge$ = function(other) {
 
     return this >= other;};
 
-  $proto.m$lshft$ = function($yield, count) {
+  def.$lshft$ = function(count) {
 
     return this << count;};
 
-  $proto.m$rshft$ = function($yield, count) {
+  def.$rshft$ = function(count) {
 
     return this >> count;};
 
-  $proto.m$uplus$ = function($yield) {
+  def.$uplus$ = function() {
 
     return +this;};
 
-  $proto.m$uminus$ = function($yield) {
+  def.$uminus$ = function() {
 
     return -this;};
 
-  $proto.m$tild$ = function($yield) {
+  def.$tild$ = function() {
 
     return ~this;};
 
-  $proto.m$pow$ = function($yield, other) {
+  def.$pow$ = function(other) {
 
     return Math.pow(this, other);};
 
-  $proto.m$eq$ = function($yield, other) {
+  def.$eq$ = function(other) {
 
     return this.valueOf() === other.valueOf();};
 
-  $proto.m$cmp$ = function($yield, other) {var _a, _b; 
+  def.$cmp$ = function(other) {
 
     
-      if (((_a = (typeof other === 'number')) === false || _a === nil)) {
+      if (typeof(other) !== 'number') {
         return nil;
       }
 
       return this < other ? -1 : (this > other ? 1 : 0);
     };
 
-  $proto.m$abs = function($yield) {
+  def.$abs = function() {
 
     return Math.abs(this);};
 
-  $proto.m$ceil = function($yield) {
+  def.$ceil = function() {
 
     return Math.ceil(this);};
 
-  $proto.m$downto = function($yield, finish) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$downto = $TMP_55 = function(finish) {var $yield = $TMP_55.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_55.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "downto", finish)};
+    if ($block_given) {} else {return this.$enum_for("downto", finish)};
       for (var i = this; i >= finish; i--) {
-        if ($yield.call($context, null, i) === $breaker) {
+        if ($yield.call($context, i) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3877,50 +3699,50 @@ $const.String;$klass(this, nil, "Numeric", function() {var $const = this.$const,
     
   };
 
-  $proto.m$even$p = function($yield) {
+  def.$even$p = function() {
 
     return this % 2 === 0;};
 
-  $proto.m$floor = function($yield) {
+  def.$floor = function() {
 
     return Math.floor(this);};
 
-  $proto.m$hash = function($yield) {
+  def.$hash = function() {
 
     return this.toString();};
 
-  $proto.m$integer$p = function($yield) {
+  def.$integer$p = function() {
 
     return this % 1 === 0;};
 
-  this.m$alias_method(null, "magnitude", "abs");
+  $opal.alias(this, "magnitude", "abs");
 
-  this.m$alias_method(null, "modulo", "%");
+  $opal.alias(this, "modulo", "%");
 
-  $proto.m$next = function($yield) {
+  def.$next = function() {
 
     return this + 1;};
 
-  $proto.m$nonzero$p = function($yield) {
+  def.$nonzero$p = function() {
 
     return this.valueOf() === 0 ? nil : this;};
 
-  $proto.m$odd$p = function($yield) {
+  def.$odd$p = function() {
 
     return this % 2 !== 0;};
 
-  $proto.m$pred = function($yield) {
+  def.$pred = function() {
 
     return this - 1;};
 
-  this.m$alias_method(null, "succ", "next");
+  $opal.alias(this, "succ", "next");
 
-  $proto.m$times = function($yield) {var _a; var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$times = $TMP_56 = function() {var _a; var $yield = $TMP_56.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_56.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return this.m$enum_for(null, "times")};
+    if ((_a = block) !== false && _a !== nil) {} else {return this.$enum_for("times")};
       for (var i = 0; i <= this; i++) {
-        if ($yield.call($context, null, i) === $breaker) {
+        if ($yield.call($context, i) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3929,28 +3751,24 @@ $const.String;$klass(this, nil, "Numeric", function() {var $const = this.$const,
     
   };
 
-  $proto.m$to_f = function($yield) {
+  def.$to_f = function() {
 
     return parseFloat(this);};
 
-  $proto.m$to_i = function($yield) {
+  def.$to_i = function() {
 
     return parseInt(this);};
 
-  $proto.m$to_native = function($yield) {
-
-    return this.valueOf();};
-
-  $proto.m$to_s = function($yield, base) {if (base === undefined) { base = 10; }
+  def.$to_s = function(base) {if (base === undefined) { base = 10; }
 
     return this.toString(base);};
 
-  $proto.m$upto = function($yield, finish) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$upto = $TMP_57 = function(finish) {var $yield = $TMP_57.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_57.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "upto", finish)};
+    if ($block_given) {} else {return this.$enum_for("upto", finish)};
       for (var i = 0; i <= finish; i++) {
-        if ($yield.call($context, null, i) === $breaker) {
+        if ($yield.call($context, i) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3959,15 +3777,15 @@ $const.String;$klass(this, nil, "Numeric", function() {var $const = this.$const,
     
   };
 
-  return $proto.m$zero$p = function($yield) {
+  return def.$zero$p = function() {
 
     return this.valueOf() === 0;};
 }, 0);
 
-$klass(this, nil, "Integer", function() {var $const = this.$const, $proto = this.$proto; 
-  return $defs(this, 'm$eqq$', function($yield, obj) {var _a, _b; 
+$klass(this, nil, "Integer", function() {var $const = this.$const, def = this.$proto; 
+  return $opal.defs(this, '$eqq$', function(obj) {
     
-      if (((_a = (typeof obj === 'number')) === false || _a === nil)) {
+      if (typeof(obj) !== 'number') {
         return false;
       }
 
@@ -3976,10 +3794,10 @@ $klass(this, nil, "Integer", function() {var $const = this.$const, $proto = this
   })
 }, 0);
 
-$klass(this, nil, "Float", function() {var $const = this.$const, $proto = this.$proto; 
-  return $defs(this, 'm$eqq$', function($yield, obj) {var _a, _b; 
+$klass(this, nil, "Float", function() {var $const = this.$const, def = this.$proto; 
+  return $opal.defs(this, '$eqq$', function(obj) {
     
-      if (((_a = (typeof obj === 'number')) === false || _a === nil)) {
+      if (typeof(obj) !== 'number') {
         return false;
       }
 
@@ -3988,110 +3806,79 @@ $klass(this, nil, "Float", function() {var $const = this.$const, $proto = this.$
   })
 }, 0);
 
-$klass(this, nil, "Rational", function() {var $const = this.$const, $proto = this.$proto; 
-  this.m$attr_reader(null, "numerator", "denominator");
-
-  $proto.m$initialize = function($yield, numerator, denominator) {if (denominator === undefined) { denominator = 1; }
-    this.numerator = 
-    numerator;return this.denominator = 
-    denominator;};
-
-  $proto.m$to_s = function($yield) {var _a; 
-
-    return ("" + this.m$numerator().m$to_s() + (function() { if ((_a = this.m$denominator()) !== false && _a !== nil) {return ("/" + this.m$denominator().m$to_s())} else {return nil}; return nil; }).call(this).m$to_s());};
-
-  return $proto.m$inspect = function($yield) {
-
-    return ("(" + this.m$to_s().m$to_s() + ")");};
-}, 0);
-
-$klass(this, nil, "Complex", function() {var $const = this.$const, $proto = this.$proto; 
-  return nil}, 0);
-
-$klass(this, nil, "Proc", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$new', function($yield) {var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+$klass(this, nil, "Proc", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$new', $TMP_58 = function() {var $yield = $TMP_58.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_58.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {this.m$raise(null, $const.ArgumentError, "tried to create Proc object without a block")};
+    if ($block_given) {} else {this.$raise($const.ArgumentError, "tried to create Proc object without a block")};
     return block;});
 
-  $proto.m$to_proc = function($yield) {
+  def.$to_proc = function() {
 
     return this;};
 
-  $proto.m$call = function($yield, args) {args = $slice.call(arguments, 1);
+  def.$call = function(args) {args = $slice.call(arguments, 0);
 
-    return this.apply(this.$S, $slice.call(arguments));};
+    return this.apply(this.$S, args);};
 
-  $proto.m$to_native = function($yield) {
-
-    
-      return function() {
-        var args = Array.slice.call(arguments);
-            args.unshift(null); // block
-
-        return this.apply(this.$S, args);
-      };
-    };
-
-  $proto.m$to_proc = function($yield) {
+  def.$to_proc = function() {
 
     return this;};
 
-  $proto.m$to_s = function($yield) {
+  def.$to_s = function() {
 
     return "#<Proc:0x0000000>";};
 
-  $proto.m$lambda$p = function($yield) {
+  def.$lambda$p = function() {
 
-    return this.$lambda ? true : false;};
+    return !!this.$lambda;};
 
-  return $proto.m$arity = function($yield) {
+  return def.$arity = function() {
 
     return this.length - 1;};
 }, 0);
 
-$klass(this, nil, "Range", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$begin = function($yield) {
+$klass(this, nil, "Range", function() {var $const = this.$const, def = this.$proto; 
+  def.$begin = function() {
 
     return this.begin;};
 
-  $proto.m$end = function($yield) {
+  def.$end = function() {
 
     return this.end;};
 
-  this.m$alias_method(null, "first", "begin");
-  this.m$alias_method(null, "min", "begin");
+  $opal.alias(this, "first", "begin");
+  $opal.alias(this, "min", "begin");
 
-  this.m$alias_method(null, "last", "end");
-  this.m$alias_method(null, "max", "end");
+  $opal.alias(this, "last", "end");
+  $opal.alias(this, "max", "end");
 
-  $proto.m$initialize = function($yield, min, max, exclude) {if (exclude === undefined) { exclude = false; }
-    this.begin = this.begin   = min;
-    this.end = this.end     = max;
-    return this.exclude = this.exclude = exclude;
-  };
+  def.$initialize = function(min, max, exclude) {if (exclude === undefined) { exclude = false; }
+    this.begin = 
+    min;this.end = 
+    max;return this.exclude = 
+    exclude;};
 
 
-  $proto.m$eqq$ = function($yield, obj) {
+  def.$eqq$ = function(obj) {
 
     return obj >= this.begin && obj <= this.end;};
 
-  $proto.m$exclude_end$p = function($yield) {
+  def.$exclude_end$p = function() {
 
     return this.exclude;};
 
-  $proto.m$to_s = function($yield) {
+  def.$to_s = function() {
 
     return this.begin + (this.exclude ? '...' : '..') + this.end;};
 
-  return $proto.m$inspect = function($yield) {
+  return def.$inspect = function() {
 
     return this.begin + (this.exclude ? '...' : '..') + this.end;};
 }, 0);
 
-$klass(this, nil, "Exception", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$initialize = function($yield, message) {if (message === undefined) { message = ""; }
+$klass(this, nil, "Exception", function() {var $const = this.$const, def = this.$proto; 
+  def.$initialize = function(message) {if (message === undefined) { message = ""; }
 
     
       if (Error.captureStackTrace) {
@@ -4101,42 +3888,57 @@ $klass(this, nil, "Exception", function() {var $const = this.$const, $proto = th
       this.message = message;
     };
 
-  $proto.m$backtrace = function($yield) {
+  def.$backtrace = function() {
 
-    return this._bt || (this._bt = exc_backtrace(this));};
+    
+      if (this._bt !== undefined) {
+        return this._bt;
+      }
 
-  $proto.m$inspect = function($yield) {
+      var backtrace = this.stack;
 
-    return ("#<" + this.m$class().m$to_s() + ": '" + this.m$message().m$to_s() + "'>");};
+      if (typeof(backtrace) === 'string') {
+        return this._bt = backtrace.split("\n");
+      }
+      else if (backtrace) {
+        this._bt = backtrace;
+      }
 
-  $proto.m$message = function($yield) {
+      return this._bt = ["No backtrace available"];
+    };
+
+  def.$inspect = function() {
+
+    return ("#<" + this.$class().$to_s() + ": '" + this.$message().$to_s() + "'>");};
+
+  def.$message = function() {
 
     return this.message;};
 
-  return this.m$alias_method(null, "to_s", "message");
+  return $opal.alias(this, "to_s", "message");
 }, 0);
 
-$klass(this, nil, "Regexp", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$escape', function($yield, string) {
+$klass(this, nil, "Regexp", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$escape', function(string) {
     return string.replace(/([.*+?^=!:${}()|[]\/\])/g, '\$1');
   });
 
-  $defs(this, 'm$new', function($yield, string, options) {if (options === undefined) { options = undefined; }
+  $opal.defs(this, '$new', function(string, options) {
     return new RegExp(string, options);
   });
 
-  $proto.m$eq$ = function($yield, other) {
+  def.$eq$ = function(other) {
 
     return other.constructor == RegExp && this.toString() === other.toString();};
 
-  $proto.m$eqq$ = function($yield, obj) {
+  def.$eqq$ = function(obj) {
 
     return this.test(obj);};
 
-  $proto.m$match$ = function($yield, string) {
+  def.$match$ = function(string) {
 
     
-      var result        = this.exec(string);
+      var result = this.exec(string);
 
       if (result) {
         var match = new RubyMatch.$allocator();
@@ -4150,13 +3952,13 @@ $klass(this, nil, "Regexp", function() {var $const = this.$const, $proto = this.
       return result ? result.index : nil;
     };
 
-  this.m$alias_method(null, "eql?", "==");
+  $opal.alias(this, "eql?", "==");
 
-  $proto.m$inspect = function($yield) {
+  def.$inspect = function() {
 
     return this.toString();};
 
-  $proto.m$match = function($yield, pattern) {
+  def.$match = function(pattern) {
 
     
       var result  = this.exec(pattern);
@@ -4171,17 +3973,13 @@ $klass(this, nil, "Regexp", function() {var $const = this.$const, $proto = this.
       }
     };
 
-  $proto.m$to_native = function($yield) {
-
-    return this;};
-
-  return $proto.m$to_s = function($yield) {
+  return def.$to_s = function() {
 
     return this.source;};
 }, 0);
 
-$klass(this, nil, "MatchData", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$aref$ = function($yield, index) {
+$klass(this, nil, "MatchData", function() {var $const = this.$const, def = this.$proto; 
+  def.$aref$ = function(index) {
 
     
       var length = this.$data.length;
@@ -4197,360 +3995,273 @@ $klass(this, nil, "MatchData", function() {var $const = this.$const, $proto = th
       return this.$data[index];
     };
 
-  $proto.m$length = function($yield) {
+  def.$length = function() {
 
     return this.$data.length;};
 
-  $proto.m$inspect = function($yield) {
+  def.$inspect = function() {
 
-    return ("#<MatchData " + this.m$aref$(null, 0).m$inspect().m$to_s() + ">");};
+    return ("#<MatchData " + this.$aref$(0).$inspect().$to_s() + ">");};
 
-  this.m$alias_method(null, "size", "length");
+  $opal.alias(this, "size", "length");
 
-  $proto.m$to_a = function($yield) {
+  def.$to_a = function() {
 
-    return [].slice.call(this.$data, 0);};
+    return $slice.call(this.$data);};
 
-  $opal.alias(this, "to_native", "to_a");
-
-  return $proto.m$to_s = function($yield) {
+  return def.$to_s = function() {
 
     return this.$data[0];};
 }, 0);
 
-$klass(this, nil, "Struct", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$new', function($yield, name, args) {var _a; args = $slice.call(arguments, 2);
-    if ((_a = this.m$eq$(
+$klass(this, nil, "Time", function() {var $const = this.$const, def = this.$proto; 
 
-    null, $const.Struct)) !== false && _a !== nil) {} else {return $opal.zuper(arguments.callee, this, [])};if ((_a = name.m$is_a$p(null, $const.String)) !== false && _a !== nil) {
-      return $const.Struct.m$const_set(null, name, (_a=this).m$new.apply(_a, [null].concat(args)))} else {
 
-      args.m$unshift(
+  this.$include($const.Comparable);$opal.defs(this, '$at', function(seconds, frac) {var result = nil; if (frac === undefined) { frac = 0; }
+    result = 
+    this.$allocate();result.time = new Date(seconds * 1000 + frac);
 
-      null, name);return $const.Class.m$new((_a=function(_$) {var _a; 
-        return args.m$each((_a=function(_$, name) {if (name === undefined) {name = nil; }return this.m$define_struct_attribute(null, name)},_a.$S=this,_a))
-      },_a.$S=this,_a), this);
+    return result;});
+
+  $opal.defs(this, '$now', function(
+    ) {var result = nil; result = 
+    this.$allocate();result.time = new Date();
+
+    return result;});
+
+  def.$initialize = function() {
+
+    return this.time = new Date();};
+
+  def.$plus$ = function(other) {var _a, _b; 
+
+    
+      var res = $const.Time.$allocate();
+      res.time = new Date((_a = this.$to_f(), _b = other.$to_f(), typeof(_a) === 'number' ? _a + _b : _a.$plus$(_b)));
+      return res;
+    };
+
+  def.$minus$ = function(other) {var _a, _b; 
+
+    
+      var res = $const.Time.$allocate();
+      res.time = new Date((_a = this.$to_f(), _b = other.$to_f(), typeof(_a) === 'number' ? _a - _b : _a.$minus$(_b)));
+      return res;
+    };
+
+  def.$cmp$ = function(other) {
+
+    return this.$to_f().$cmp$(other.$to_f());};
+
+  def.$day = function() {
+
+    return this.time.getDate();};
+
+  def.$eql$p = function(other) {var _a; 
+
+    return (_a = other.$is_a$p($const.Time), _a !== false && _a != nil ? this.$cmp$(other).$zero$p() : _a);};
+
+  def.$friday$p = function() {
+
+    return this.time.getDay() === 5;};
+
+  def.$hour = function() {
+
+    return this.time.getHours();};
+
+  $opal.alias(this, "mday", "day");
+
+  def.$min = function() {
+
+    return this.time.getMinutes();};
+
+  def.$mon = function() {
+
+    return this.time.getMonth() + 1;};
+
+  def.$monday$p = function() {
+
+    return this.time.getDay() === 1;};
+
+  $opal.alias(this, "month", "mon");
+
+  def.$saturday$p = function() {
+
+    return this.time.getDay() === 6;};
+
+  def.$sec = function() {
+
+    return this.time.getSeconds();};
+
+  def.$sunday$p = function() {
+
+    return this.time.getDay() === 0;};
+
+  def.$thursday$p = function() {
+
+    return this.time.getDay() === 4;};
+
+  def.$to_f = function() {
+
+    return this.time.getTime() / 1000;};
+
+  def.$to_i = function() {
+
+    return parseInt(this.time.getTime() / 1000);};
+
+  def.$tuesday$p = function() {
+
+    return this.time.getDay() === 2;};
+
+  def.$wday = function() {
+
+    return this.time.getDay();};
+
+  def.$wednesday$p = function() {
+
+    return this.time.getDay() === 3;};
+
+  return def.$year = function() {
+
+    return this.time.getFullYear();};
+}, 0);
+
+$klass(this, nil, "Struct", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$new', function(name, args) {var _a, _b; args = $slice.call(arguments, 1);
+    if ((_a = this.$eq$(
+
+    $const.Struct)) !== false && _a !== nil) {} else {return $opal.zuper(arguments.callee, this, [])};if ((_a = name.$is_a$p($const.String)) !== false && _a !== nil) {
+      return $const.Struct.$const_set(name, (_a=this).$new.apply(_a, args))} else {
+
+      args.$unshift(
+
+      name);return (_a=(_b=$const.Class).$new, (_a.$P = function() {var _a, _b; 
+        return (_a=(_b=args).$each, (_a.$P = function(name) {if (name === undefined) {name = nil; }return this.$define_struct_attribute(name)}).$S = this, _a).call(_b)
+      }).$S = this, _a).call(_b, this);
     };
   });
 
-  $defs(this, 'm$define_struct_attribute', function($yield, name) {var _a; 
-    this.m$members().m$lshft$(
+  $opal.defs(this, '$define_struct_attribute', function(name) {var _a, _b; 
+    this.$members().$lshft$(
 
-    null, name);this.m$define_method((_a=function(_$) {
-      return this.m$instance_variable_get(null, ("@" + name.m$to_s()))
-    },_a.$S=this,_a), name);
+    name);(_a=(_b=this).$define_method, (_a.$P = function() {
+      return this.$instance_variable_get(("@" + name.$to_s()))
+    }).$S = this, _a).call(_b, name);
 
-    return this.m$define_method((_a=function(_$, value) {if (value === undefined) {value = nil; }
-      return this.m$instance_variable_set(null, ("@" + name.m$to_s()), 
-      value)},_a.$S=this,_a), ("" + name.m$to_s() + "="));
+    return (_a=(_b=this).$define_method, (_a.$P = function(value) {if (value === undefined) {value = nil; }
+      return this.$instance_variable_set(("@" + name.$to_s()), 
+      value)}).$S = this, _a).call(_b, ("" + name.$to_s() + "="));
   });
 
-  $defs(this, 'm$members', function(
-    $yield) {var _a; this.members == null && (this.members = nil);return (_a = this.members, _a !== false && _a != nil ? _a : this.members = [])
+  $opal.defs(this, '$members', function(
+    ) {var _a; this.members == null && (this.members = nil);return (_a = this.members, _a !== false && _a != nil ? _a : this.members = [])
   });
 
 
 
-  this.m$include(null, $const.Enumerable);$proto.m$initialize = function($yield, args) {var _a; args = $slice.call(arguments, 1);
+  this.$include($const.Enumerable);def.$initialize = function(args) {var _a, _b; args = $slice.call(arguments, 0);
 
 
 
-    return this.m$members().m$each_with_index((_a=function(_$, name, index) {if (name === undefined) {name = nil; }if (index === undefined) {index = nil; }return this.m$instance_variable_set(null, ("@" + name.m$to_s()), args.m$aref$(null, index))},_a.$S=this,_a));};
+    return (_a=(_b=this.$members()).$each_with_index, (_a.$P = function(name, index) {if (name === undefined) {name = nil; }if (index === undefined) {index = nil; }return this.$instance_variable_set(("@" + name.$to_s()), args.$aref$(index))}).$S = this, _a).call(_b);};
 
-  $proto.m$members = function($yield) {
+  def.$members = function() {
 
-    return this.m$class().m$members();};
+    return this.$class().$members();};
 
-  $proto.m$aref$ = function($yield, name) {var _a, _b; 
-    if ((_a = name.m$is_a$p(null, $const.Integer)) !== false && _a !== nil) {
-      if ((_a = name, _b = this.m$members().m$size(), typeof(_a) === 'number' ? _a >= _b : _a.m$ge$(null, _b))) {this.m$raise(null, $const.IndexError, ("offset " + name.m$to_s() + " too large for struct(size:" + this.m$members().m$size().m$to_s() + ")"))
+  def.$aref$ = function(name) {var _a, _b; 
+    if ((_a = name.$is_a$p($const.Integer)) !== false && _a !== nil) {
+      if ((_a = name, _b = this.$members().$size(), typeof(_a) === 'number' ? _a >= _b : _a.$ge$(_b))) {this.$raise($const.IndexError, ("offset " + name.$to_s() + " too large for struct(size:" + this.$members().$size().$to_s() + ")"))
 
-      };name = this.m$members().m$aref$(null, name);} else {
+      };name = this.$members().$aref$(name);} else {
 
-      if ((_b = this.m$members().m$include$p(null, name.m$to_sym())) !== false && _b !== nil) {} else {this.m$raise(null, $const.NameError, ("no member '" + name.m$to_s() + "' in struct"))
+      if ((_b = this.$members().$include$p(name.$to_sym())) !== false && _b !== nil) {} else {this.$raise($const.NameError, ("no member '" + name.$to_s() + "' in struct"))
       }};
 
-    return this.m$instance_variable_get(null, ("@" + name.m$to_s()));
+    return this.$instance_variable_get(("@" + name.$to_s()));
   };
 
-  $proto.m$aset$ = function($yield, name, value) {var _a, _b; 
-    if ((_a = name.m$is_a$p(null, $const.Integer)) !== false && _a !== nil) {
-      if ((_a = name, _b = this.m$members().m$size(), typeof(_a) === 'number' ? _a >= _b : _a.m$ge$(null, _b))) {this.m$raise(null, $const.IndexError, ("offset " + name.m$to_s() + " too large for struct(size:" + this.m$members().m$size().m$to_s() + ")"))
+  def.$aset$ = function(name, value) {var _a, _b; 
+    if ((_a = name.$is_a$p($const.Integer)) !== false && _a !== nil) {
+      if ((_a = name, _b = this.$members().$size(), typeof(_a) === 'number' ? _a >= _b : _a.$ge$(_b))) {this.$raise($const.IndexError, ("offset " + name.$to_s() + " too large for struct(size:" + this.$members().$size().$to_s() + ")"))
 
-      };name = this.m$members().m$aref$(null, name);} else {
+      };name = this.$members().$aref$(name);} else {
 
-      if ((_b = this.m$members().m$include$p(null, name.m$to_sym())) !== false && _b !== nil) {} else {this.m$raise(null, $const.NameError, ("no member '" + name.m$to_s() + "' in struct"))
+      if ((_b = this.$members().$include$p(name.$to_sym())) !== false && _b !== nil) {} else {this.$raise($const.NameError, ("no member '" + name.$to_s() + "' in struct"))
       }};
 
-    return this.m$instance_variable_set(null, ("@" + name.m$to_s()), 
+    return this.$instance_variable_set(("@" + name.$to_s()), 
     value);};
 
-  $proto.m$each = function($yield) {var _a; try {var $block_given = ($yield != null); $yield || ($yield = $no_proc);var $context = $yield.$S;
+  def.$each = $TMP_59 = function() {var _a, _b; try {var $yield = $TMP_59.$P;if ($yield) { var $context = $yield.$S, $block_given = true; $TMP_59.$P = null; }else { $yield = $no_proc; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "each")};return this.m$members().m$each((_a=function(_$, name) {var _a; if (name === undefined) {name = nil; }return ((_a = $yield.call($context, null, this.m$aref$(null, name))) === $breaker ? _a.$t() : _a)},_a.$S=this,_a));} catch (e) { if (e === $breaker) { return e.$v; }; throw e;}
+    if ($block_given) {} else {return this.$enum_for("each")};return (_a=(_b=this.$members()).$each, (_a.$P = function(name) {var _a; if (name === undefined) {name = nil; }return ((_a = $yield.call($context, this.$aref$(name))) === $breaker ? _a.$t() : _a)}).$S = this, _a).call(_b);} catch (e) { if (e === $breaker) { return e.$v; }; throw e;}
   };
 
-  $proto.m$each_pair = function($yield) {var _a; try {var $block_given = ($yield != null); $yield || ($yield = $no_proc);var $context = $yield.$S;
+  def.$each_pair = $TMP_60 = function() {var _a, _b; try {var $yield = $TMP_60.$P;if ($yield) { var $context = $yield.$S, $block_given = true; $TMP_60.$P = null; }else { $yield = $no_proc; }
 
 
-    if ($block_given) {} else {return this.m$enum_for(null, "each_pair")};return this.m$members().m$each((_a=function(_$, name) {var _a; if (name === undefined) {name = nil; }return ((_a = $yield.call($context, null, name, this.m$aref$(null, name))) === $breaker ? _a.$t() : _a)},_a.$S=this,_a));} catch (e) { if (e === $breaker) { return e.$v; }; throw e;}
+    if ($block_given) {} else {return this.$enum_for("each_pair")};return (_a=(_b=this.$members()).$each, (_a.$P = function(name) {var _a; if (name === undefined) {name = nil; }return ((_a = $yield.call($context, name, this.$aref$(name))) === $breaker ? _a.$t() : _a)}).$S = this, _a).call(_b);} catch (e) { if (e === $breaker) { return e.$v; }; throw e;}
   };
 
-  $proto.m$eql$p = function($yield, other) {var _a, _b; 
+  def.$eql$p = function(other) {var _a, _b, _c; 
 
 
 
-    return (_a = this.m$hash().m$eq$(null, other.m$hash()), _a !== false && _a != nil ? _a : other.m$each_with_index().m$all$p((_b=function(_$, object, index) {if (object === undefined) {object = nil; }if (index === undefined) {index = nil; }return this.m$aref$(null, this.m$members().m$aref$(null, index)).m$eq$(null, object)},_b.$S=this,_b)));};
+    return (_a = this.$hash().$eq$(other.$hash()), _a !== false && _a != nil ? _a : (_b=(_c=other.$each_with_index()).$all$p, (_b.$P = function(object, index) {if (object === undefined) {object = nil; }if (index === undefined) {index = nil; }return this.$aref$(this.$members().$aref$(index)).$eq$(object)}).$S = this, _b).call(_c));};
 
-  $proto.m$length = function($yield) {
+  def.$length = function() {
 
-    return this.m$members().m$length();};
+    return this.$members().$length();};
 
   $opal.alias(this, "size", "length");
 
-  $proto.m$to_a = function($yield) {var _a; 
+  def.$to_a = function() {var _a, _b; 
 
-    return this.m$members().m$map((_a=function(_$, name) {if (name === undefined) {name = nil; }return this.m$aref$(null, name)},_a.$S=this,_a));};
+    return (_a=(_b=this.$members()).$map, (_a.$P = function(name) {if (name === undefined) {name = nil; }return this.$aref$(name)}).$S = this, _a).call(_b);};
 
   return $opal.alias(this, "values", "to_a");
 }, 0);
 
-$klass(this, nil, "Time", function() {var $const = this.$const, $proto = this.$proto; 
+$klass(this, nil, "IO", function() {var $const = this.$const, def = this.$proto; 
+  def.$puts = function(args) {var _a, _b; args = $slice.call(arguments, 0);
+    if ((_a = args.$empty$p()) !== false && _a !== nil) {return this.$flush()
 
-  this.m$include(null, $const.Native);
+    };return (_a=(_b=args).$each, (_a.$P = function(a) {if (a === undefined) {a = nil; }
+      this.$write(a.$to_s());
 
-  this.m$include(null, $const.Comparable);$defs(this, 'm$at', function($yield, seconds, frac) {if (frac === undefined) { frac = 0; }
-    return this.m$from_native(null, new Date(seconds * 1000 + frac))
-  });
-
-  $defs(this, 'm$now', function(
-    $yield) {return this.m$from_native(null, new Date())
-  });
-
-  $proto.m$initialize = function($yield, year, month, day, hour, min, sec, utc_offset) {var _a; if (year === undefined) { year = nil; }if (month === undefined) { month = nil; }if (day === undefined) { day = nil; }if (hour === undefined) { hour = nil; }if (min === undefined) { min = nil; }if (sec === undefined) { sec = nil; }if (utc_offset === undefined) { utc_offset = nil; }
-
-
-
-
-
-    if ((_a = year) !== false && _a !== nil) {return $opal.zuper(arguments.callee, this, [new Date(year.m$to_native(), month.m$to_native(), day.m$to_native(), hour.m$to_native(), min.m$to_native(), sec.m$to_native())])} else {return $opal.zuper(arguments.callee, this, [new Date()])};};
-
-  $proto.m$plus$ = function($yield, other) {var _a, _b; 
-
-    return this.m$from_native(null, new Date((_a = this.m$to_f(), _b = other.m$to_f(), typeof(_a) === 'number' ? _a + _b : _a.m$plus$(null, _b))));};
-
-  $proto.m$minus$ = function($yield, other) {var _a, _b; 
-
-    return this.m$from_native(null, new Date((_a = this.m$to_f(), _b = other.m$to_f(), typeof(_a) === 'number' ? _a - _b : _a.m$minus$(null, _b))));};
-
-  $proto.m$cmp$ = function($yield, other) {
-
-    return this.m$to_f().m$cmp$(null, other.m$to_f());};
-
-  $proto.m$asctime = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $opal.alias(this, "ctime", "asctime");
-
-  $proto.m$day = function($yield) {this['native'] == null && (this['native'] = nil);
-
-    return this['native'].getDate();};
-
-  $proto.m$dst$p = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$eql$p = function($yield, other) {var _a; 
-
-    return (_a = other.m$is_a$p(null, $const.Time), _a !== false && _a != nil ? this.m$cmp$(null, other).m$zero$p() : _a);};
-
-  $proto.m$friday$p = function($yield) {
-
-    return this.m$wday().m$eq$(null, 5);};
-
-  $proto.m$getgm = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$getlocal = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $opal.alias(this, "getutc", "getgm");
-
-  $proto.m$gmt$p = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$gmt_offset = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$gmtime = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $opal.alias(this, "gmtoff", "gmt_offset");
-
-  $proto.m$hour = function($yield) {this['native'] == null && (this['native'] = nil);
-
-    return this['native'].getHours();};
-
-  $opal.alias(this, "isdst", "dst?");
-
-  $proto.m$localtime = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $opal.alias(this, "mday", "day");
-
-  $proto.m$min = function($yield) {this['native'] == null && (this['native'] = nil);
-
-    return this['native'].getMinutes();};
-
-  $proto.m$mon = function($yield) {this['native'] == null && (this['native'] = nil);
-
-    return this['native'].getMonth() + 1;};
-
-  $proto.m$monday$p = function($yield) {
-
-    return this.m$wday().m$eq$(null, 1);};
-
-  $opal.alias(this, "month", "mon");
-
-  $proto.m$nsec = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$round = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$saturday$p = function($yield) {
-
-    return this.m$wday().m$eq$(null, 6);};
-
-  $proto.m$sec = function($yield) {this['native'] == null && (this['native'] = nil);
-
-    return this['native'].getSeconds();};
-
-  $proto.m$strftime = function($yield, string) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$subsec = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$sunday$p = function($yield) {
-
-    return this.m$wday().m$eq$(null, 0);};
-
-  $proto.m$thursday$p = function($yield) {
-
-    return this.m$wday().m$eq$(null, 4);};
-
-  $proto.m$to_a = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$to_f = function($yield) {this['native'] == null && (this['native'] = nil);
-
-    return this['native'].getTime() / 1000;};
-
-  $proto.m$to_i = function($yield) {this['native'] == null && (this['native'] = nil);
-
-    return parseInt(this['native'].getTime() / 1000);};
-
-  $proto.m$to_r = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$to_s = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$tuesday$p = function($yield) {
-
-    return this.m$wday().m$eq$(null, 2);};
-
-  $opal.alias(this, "tv_nsec", "nsec");
-
-  $opal.alias(this, "tv_sec", "to_i");
-
-  $proto.m$tv_usec = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $opal.alias(this, "usec", "tv_usec");
-
-  $opal.alias(this, "utc", "gmtime");
-
-  $opal.alias(this, "utc?", "gmt?");
-
-  $opal.alias(this, "utc_offset", "gmt_offset");
-
-  $proto.m$wday = function($yield) {this['native'] == null && (this['native'] = nil);
-
-    return this['native'].getDay();};
-
-  $proto.m$wednesday$p = function($yield) {
-
-    return this.m$wday().m$eq$(null, 3);};
-
-  $proto.m$yday = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-
-  $proto.m$year = function($yield) {this['native'] == null && (this['native'] = nil);
-
-    return this['native'].getFullYear();};
-
-  return $proto.m$zone = function($yield) {
-
-    return this.m$raise(null, $const.NotImplementedError);};
-}, 0);
-
-$klass(this, nil, "IO", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$puts = function($yield, args) {var _a; args = $slice.call(arguments, 1);
-    if ((_a = args.m$empty$p()) !== false && _a !== nil) {return this.m$flush()
-
-    };return args.m$each((_a=function(_$, a) {if (a === undefined) {a = nil; }
-      this.m$write(null, a.m$to_s());
-
-      return this.m$flush();},_a.$S=this,_a));
+      return this.$flush();}).$S = this, _a).call(_b);
   };
 
-  $proto.m$print = function($yield, args) {var _a; args = $slice.call(arguments, 1);
-    args.m$each((_a=function(_$, a) {if (a === undefined) {a = nil; }return this.m$write(null, a.m$to_s())},_a.$S=this,_a));
+  def.$print = function(args) {var _a, _b; args = $slice.call(arguments, 0);
+    (_a=(_b=args).$each, (_a.$P = function(a) {if (a === undefined) {a = nil; }return this.$write(a.$to_s())}).$S = this, _a).call(_b);
 
     return nil;
   };
 
-  $proto.m$write = function($yield) {
+  def.$write = function() {
 
     return nil;};
 
-  return $proto.m$flush = function($yield) {
+  return def.$flush = function() {
 
     return this;};
 }, 0);
 
-$const.STDOUT = ($opal.gvars["$stdout"] = $const.IO.m$new());
+$const.STDOUT = ($opal.gvars["$stdout"] = $const.IO.$new());
 
 $klass(((_a = $opal.gvars["$stdout"]) == null ? nil : _a), nil, nil, function() {var $const = this.$const; 
 
 var stdout_buffer = [];
 
-$defn(this, 'm$write', function($yield, str) {
+$opal.defn(this, '$write', function(str) {
   stdout_buffer.push(str);
 
   return nil;
 });
 
-return $defn(this, 'm$flush', function($yield) {
+return $opal.defn(this, '$flush', function() {
   console.log(stdout_buffer.join(''));
   stdout_buffer = [];
 
@@ -4558,8 +4269,11 @@ return $defn(this, 'm$flush', function($yield) {
 });}, 2);
 
 
-$klass(this, nil, "File", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$expand_path', function($yield, path, base) {if (base === undefined) { base = undefined; }
+$klass(this, nil, "File", function() {var $const = this.$const, def = this.$proto; 
+
+  $const.PATH_RE = /^(.+\/(?!$)|\/)?((?:.+?)?(\.[^.]*)?)$/;
+
+  $opal.defs(this, '$expand_path', function(path, base) {
     
       if (!base) {
         if (path.charAt(0) !== '/') {
@@ -4570,7 +4284,7 @@ $klass(this, nil, "File", function() {var $const = this.$const, $proto = this.$p
         }
       }
 
-      path = this.m$join(null, base, path);
+      path = this.$join(base, path);
 
       var parts = path.split('/'), result = [], path;
 
@@ -4597,13 +4311,13 @@ $klass(this, nil, "File", function() {var $const = this.$const, $proto = this.$p
     
   });
 
-  $defs(this, 'm$join', function($yield, paths) {paths = $slice.call(arguments, 1);
+  $opal.defs(this, '$join', function(paths) {paths = $slice.call(arguments, 0);
     return paths.join('/');
   });
 
-  $defs(this, 'm$dirname', function($yield, path) {
+  $opal.defs(this, '$dirname', function(path) {
     
-      var dirname = PATH_RE.exec(path)[1];
+      var dirname = $const.PATH_RE.exec(path)[1];
 
       if (!dirname) {
         return '.';
@@ -4617,9 +4331,9 @@ $klass(this, nil, "File", function() {var $const = this.$const, $proto = this.$p
     
   });
 
-  $defs(this, 'm$extname', function($yield, path) {
+  $opal.defs(this, '$extname', function(path) {
     
-      var extname = PATH_RE.exec(path)[3];
+      var extname = $const.PATH_RE.exec(path)[3];
 
       if (!extname || extname === '.') {
         return '';
@@ -4630,32 +4344,32 @@ $klass(this, nil, "File", function() {var $const = this.$const, $proto = this.$p
     
   });
 
-  $defs(this, 'm$basename', function($yield, path, suffix) {
+  $opal.defs(this, '$basename', function(path, suffix) {
     return $opal.fs.basename(path, suffix);
   });
 
-  return $defs(this, 'm$exist$p', function($yield, path) {
-    return opal.loader.factories[this.m$expand_path(null, path)] ? true : false;
+  return $opal.defs(this, '$exist$p', function(path) {
+    return !!FACTORIES[this.$expand_path(path)];
   });
 }, 0);
 
-return $klass(this, nil, "Dir", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$getwd', function(
-    $yield) {return FS_CWD;
+return $klass(this, nil, "Dir", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$getwd', function(
+    ) {return FS_CWD;
   });
 
-  $defs(this, 'm$pwd', function(
-    $yield) {return FS_CWD;
+  $opal.defs(this, '$pwd', function(
+    ) {return FS_CWD;
   });
 
-  return $defs(this, 'm$aref$', function($yield, globs) {globs = $slice.call(arguments, 1);
+  return $opal.defs(this, '$aref$', function(globs) {globs = $slice.call(arguments, 0);
     
       var result = [], files = FACTORIES;
 
       for (var i = 0, ii = globs.length; i < ii; i++) {
         var glob = globs[i];
 
-        var re = fs_glob_to_regexp($const.File.m$expand_path(null, glob));
+        var re = fs_glob_to_regexp($const.File.$expand_path(glob));
 
         for (var file in files) {
           if (re.exec(file)) {
@@ -4667,6 +4381,6 @@ return $klass(this, nil, "Dir", function() {var $const = this.$const, $proto = t
       return result;
     
   });
-}, 0);
+}, 0);;var $TMP_1, $TMP_2, $TMP_3, $TMP_4, $TMP_5, $TMP_6, $TMP_7, $TMP_8, $TMP_9, $TMP_10, $TMP_11, $TMP_12, $TMP_13, $TMP_14, $TMP_15, $TMP_16, $TMP_17, $TMP_18, $TMP_19, $TMP_20, $TMP_21, $TMP_22, $TMP_23, $TMP_24, $TMP_25, $TMP_26, $TMP_27, $TMP_28, $TMP_29, $TMP_30, $TMP_31, $TMP_32, $TMP_33, $TMP_34, $TMP_35, $TMP_36, $TMP_37, $TMP_38, $TMP_39, $TMP_40, $TMP_41, $TMP_42, $TMP_43, $TMP_44, $TMP_45, $TMP_46, $TMP_47, $TMP_48, $TMP_49, $TMP_50, $TMP_51, $TMP_52, $TMP_53, $TMP_54, $TMP_55, $TMP_56, $TMP_57, $TMP_58, $TMP_59, $TMP_60;
 }).call(opal.top, opal);
 }).call(this);

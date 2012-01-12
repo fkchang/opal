@@ -1,18 +1,17 @@
 /*!
  * opal v0.3.15
- * http://adambeynon.github.com/opal
+ * http://opalrb.org
  *
  * Copyright 2012, Adam Beynon
  * Released under the MIT license
  */
+
 (function(undefined) {
 var opal = this.opal = {};
 
 // Minify common function calls
-var ArrayProto          = Array.prototype,
-    ObjectProto         = Object.prototype,
-    $slice              = ArrayProto.slice,
-    hasOwnProperty      = ObjectProto.hasOwnProperty;
+var hasOwnProperty  = Object.prototype.hasOwnProperty,
+    $slice          = Array.prototype.slice;
 
 // Types - also added to bridged objects
 var T_CLASS      = 0x0001,
@@ -47,22 +46,6 @@ function define_attr(klass, name, getter, setter) {
   }
 }
 
-function define_attr_bridge(klass, target, name, getter, setter) {
-  if (getter) {
-    define_method(klass, mid_to_jsid(name), function() {
-      var res = target[name];
-
-      return res == null ? nil : res;
-    });
-  }
-
-  if (setter) {
-    define_method(klass, mid_to_jsid(name + '='), function (block, val) {
-      return target[name] = val;
-    });
-  }
-}
-
 /**
  * Hash constructor
  */
@@ -77,7 +60,7 @@ function Hash() {
 
   for (var i = 0, length = args.length; i < length; i++) {
     key = args[i];
-    assocs[key.m$hash()] = [key, args[++i]];
+    assocs[key.$hash()] = [key, args[++i]];
   }
 
   return this;
@@ -127,15 +110,6 @@ opal.const_get = function(const_table, id) {
   raise(RubyNameError, 'uninitialized constant ' + id);
 };
 
-// Set constant with given id
-opal.const_set = function(base, id, val) {
-  if (base.$flags & T_OBJECT) {
-    base = class_real(base.$klass);
-  }
-
-  return base.$const[id] = val;
-};
-
 // Table holds all class variables
 opal.cvars = {};
 
@@ -162,7 +136,7 @@ opal.alias = function(klass, new_name, old_name) {
   var body = klass.$allocator.prototype[old_name];
 
   if (!body) {
-    raise(RubyNameError, "undefined method `" + old_name + "' for class `" + klass.__classid__ + "'");
+    raise(RubyNameError, "undefined method `" + old_name + "' for class `" + klass.$name + "'");
   }
 
   define_method(klass, new_name, body);
@@ -172,11 +146,10 @@ opal.alias = function(klass, new_name, old_name) {
 // method missing yielder - used in debug mode to call method_missing.
 opal.mm = function(jsid) {
   var mid = jsid_to_mid(jsid);
-  return function(block) {
+  return function() {
     var args = $slice.call(arguments, 1);
     args.unshift(mid);
-    args.unshift(block);
-    return this.m$method_missing.apply(this, args);
+    return this.$method_missing.apply(this, args);
   };
 }
 
@@ -193,7 +166,6 @@ var define_method = opal.defn = function(klass, id, body) {
   }
 
   klass.$allocator.prototype[id] = body;
-  klass.$m[id]           = body;
 
   var included_in = klass.$included_in, includee;
 
@@ -205,7 +177,6 @@ var define_method = opal.defn = function(klass, id, body) {
     }
   }
 
-  // Add method to toll-free prototypes as well
   if (klass.$bridge_prototype) {
     klass.$bridge_prototype[id] = body;
   }
@@ -213,36 +184,6 @@ var define_method = opal.defn = function(klass, id, body) {
 
   return nil;
 }
-
-function define_method_bridge(klass, target, id, name) {
-  define_method(klass, id, function() {
-    return target.apply(this, $slice.call(arguments, 1));
-  });
-}
-
-function string_inspect(self) {
-  /* borrowed from json2.js, see file for license */
-  var cx        = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
-      escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
-      meta      = {
-        '\b': '\\b',
-        '\t': '\\t',
-        '\n': '\\n',
-        '\f': '\\f',
-        '\r': '\\r',
-        '"' : '\\"',
-        '\\': '\\\\'
-      };
-
-  escapable.lastIndex = 0;
-
-  return escapable.test(self) ? '"' + self.replace(escapable, function(a) {
-    var c = meta[a];
-
-    return typeof c === 'string' ? c :
-      '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
-  }) + '"' : '"' + self + '"';
-};
 
 // Fake yielder used when no block given
 opal.no_proc = function() {
@@ -264,7 +205,7 @@ function define_module(base, id) {
   var module;
 
   module             = boot_module();
-  module.__classid__ = (base === RubyObject ? id : base.__classid__ + '::' + id)
+  module.$name = (base === RubyObject ? id : base.$name + '::' + id)
 
   make_metaclass(module, RubyModule);
 
@@ -322,7 +263,7 @@ opal.klass = function(base, superklass, id, body, type) {
         superklass = RubyObject;
       }
 
-      if (base.$const.hasOwnProperty(id)) {
+      if (hasOwnProperty.call(base.$const, id)) {
         klass = base.$const[id];
       }
       else {
@@ -336,7 +277,7 @@ opal.klass = function(base, superklass, id, body, type) {
         base = class_real(base.$klass);
       }
 
-      if (base.$const.hasOwnProperty(id)) {
+      if (hasOwnProperty.call(base.$const, id)) {
         klass = base.$const[id];
       }
       else {
@@ -377,10 +318,9 @@ opal.zuper = function(callee, self, args) {
 
   if (!func) {
     raise(RubyNoMethodError, "super: no superclass method `" + mid + "'"
-             + " for " + self.$m.inspect(self, 'inspect'));
+             + " for " + self.$inspect());
   }
 
-  args.unshift(null);
   return func.apply(self, args);
 };
 
@@ -389,7 +329,7 @@ function mid_to_jsid(mid) {
     return method_names[mid];
   }
 
-  return 'm$' + mid.replace('!', '$b').replace('?', '$p').replace('=', '$e');
+  return '$' + mid.replace('!', '$b').replace('?', '$p').replace('=', '$e');
 }
 
 function jsid_to_mid(jsid) {
@@ -397,14 +337,14 @@ function jsid_to_mid(jsid) {
     return reverse_method_names[jsid];
   }
 
-  jsid = jsid.substr(2); // remove 'm$'
+  jsid = jsid.substr(1); // remove '$'
 
   return jsid.replace('$b', '!').replace('$p', '?').replace('$e', '=');
 }
 
 // Raise a new exception using exception class and message
 function raise(exc, str) {
-  throw exc.m$new(null, str);
+  throw exc.$new(str);
 }
 
 opal.arg_error = function(given, expected) {
@@ -414,21 +354,22 @@ opal.arg_error = function(given, expected) {
 // Inspect object or class
 function inspect_object(obj) {
   if (obj.$flags & T_OBJECT) {
-    return "#<" + class_real(obj.$klass).__classid__ + ":0x" + (obj.$id * 400487).toString(16) + ">";
+    return "#<" + class_real(obj.$klass).$name + ":0x" + (obj.$id * 400487).toString(16) + ">";
   }
   else {
-    return obj.__classid__;
+    return obj.$name;
   }
 }
+
 // Root of all objects and classes inside opal
 function RootObject() {};
 
 RootObject.prototype.toString = function() {
   if (this.$flags & T_OBJECT) {
-    return "#<" + (this.$klass).__classid__ + ":0x" + this.$id + ">";
+    return "#<" + (this.$klass).$name + ":0x" + this.$id + ">";
   }
   else {
-    return '<' + this.__classid__ + ' ' + this.$id + '>';
+    return '<' + this.$name + ' ' + this.$id + '>';
   }
 };
 
@@ -471,11 +412,9 @@ function boot_makemeta(id, klass, superklass) {
 
   var proto              = meta.prototype;
       proto.$included_in = [];
-      proto.$m           = {};
-      proto.$methods     = [];
       proto.$allocator   = klass;
       proto.$flags       = T_CLASS;
-      proto.__classid__  = id;
+      proto.$name  = id;
       proto.$s           = superklass;
       proto.constructor  = meta;
 
@@ -519,8 +458,6 @@ function boot_class(superklass) {
   proto                            = meta.prototype;
   proto.$allocator                 = cls;
   proto.$flags                     = T_CLASS;
-  proto.$m                         = {};
-  proto.$methods                   = [];
   proto.constructor                = meta;
   proto.$s                         = superklass;
 
@@ -576,10 +513,10 @@ function make_metaclass(klass, superklass) {
       raise(RubyException, "too much meta: return klass?");
     }
     else {
-      var class_id = "#<Class:" + klass.__classid__ + ">",
+      var class_id = "#<Class:" + klass.$name + ">",
           meta     = boot_class(superklass);
 
-      meta.__classid__ = class_id;
+      meta.$name = class_id;
       meta.$allocator.prototype = klass.constructor.prototype;
       meta.$flags |= FL_SINGLETON;
 
@@ -598,10 +535,10 @@ function make_metaclass(klass, superklass) {
 
 function make_singleton_class(obj) {
   var orig_class = obj.$klass,
-      class_id   = "#<Class:#<" + orig_class.__classid__ + ":" + orig_class.$id + ">>";
+      class_id   = "#<Class:#<" + orig_class.$name + ":" + orig_class.$id + ">>";
 
   klass             = boot_class(orig_class);
-  klass.__classid__ = class_id;
+  klass.$name = class_id;
 
   klass.$flags                |= FL_SINGLETON;
   klass.$bridge_prototype  = obj;
@@ -634,10 +571,10 @@ function bridge_class(constructor, flags, id) {
 function define_class(base, id, superklass) {
   var klass;
 
-  var class_id = (base === RubyObject ? id : base.__classid__ + '::' + id);
+  var class_id = (base === RubyObject ? id : base.$name + '::' + id);
 
   klass             = boot_class(superklass);
-  klass.__classid__ = class_id;
+  klass.$name = class_id;
 
   make_metaclass(klass, superklass.$klass);
 
@@ -648,8 +585,8 @@ function define_class(base, id, superklass) {
 
   base.$const[id] = klass;
 
-  if (superklass.m$inherited) {
-    superklass.m$inherited(null, klass);
+  if (superklass.$inherited) {
+    superklass.$inherited(null, klass);
   }
 
   return klass;
@@ -669,26 +606,26 @@ function singleton_class(obj) {
     klass = obj.$klass;
   }
   else {
-    var class_id = obj.$klass.__classid__;
+    var class_id = obj.$klass.$name;
 
     klass = make_metaclass(obj, obj.$klass);
   }
 
   return klass;
 }
+
 opal.main = function(id) {
   opal.gvars.$0 = find_lib(id);
 
   try {
-    top_self.m$require(null, id);
+    top_self.$require(id);
 
     opal.do_at_exit();
   }
   catch (e) {
     // this is defined in debug.js
-    if (opal.backtrace) {
-      opal.backtrace(e);
-    }
+    console.log(e.$klass.$name + ': ' + e.message);
+    console.log("\t" + e.$backtrace().join("\n\t"));
   }
 };
 
@@ -727,44 +664,34 @@ opal.lib = function(lib, factory) {
   LIBS[lib]       = file;
 };
 
-FACTORIES = {};
-LIBS      = {};
-LOADER_PATHS     = ['', '/lib'];
-LOADER_CACHE     = {};
+var FACTORIES    = {},
+    LIBS         = {},
+    LOADER_PATHS = ['', '/lib'],
+    LOADER_CACHE = {};
 
 function find_lib(id) {
-  var lib  = '/lib/' + id;
+  var path;
 
   // try to load a lib path first - i.e. something in our load path
-  if (FACTORIES[lib + '.rb']) {
-    return lib + '.rb';
-  }
+  if (path = LIBS[id]) return path;
+
+  // find '/opal/x' style libs
+  if (path = LIBS['opal/' + id]) return path;
 
   // next, incase our require() has a ruby extension..
-  if (FACTORIES[lib]) {
-    return lib;
-  }
+  if (FACTORIES['/lib/' +id]) return '/lib/' + id;
 
   // check if id is full path..
-  if (FACTORIES[id]) {
-    return id;
-  }
+  if (FACTORIES[id]) return id;
 
   // full path without '.rb'
-  if (FACTORIES[id + '.rb']) {
-    return id + '.rb';
-  }
+  if (FACTORIES[id + '.rb']) return id + '.rb';
 
   // check in current working directory.
   var in_cwd = FS_CWD + '/' + id;
 
-  if (FACTORIES[in_cwd]) {
-    return in_cwd;
-  }
+  if (FACTORIES[in_cwd]) return in_cwd;
 };
-
-// Split to dirname, basename and extname
-var PATH_RE = /^(.+\/(?!$)|\/)?((?:.+?)?(\.[^.]*)?)$/;
 
 // Current working directory
 var FS_CWD = '/';
@@ -827,48 +754,7 @@ function fs_glob_to_regexp(glob) {
 
   return new RegExp('^' + result + '$');
 };
-function exc_backtrace(err) {
-  var old = Error.prepareStackTrace;
-  Error.prepareStackTrace = prepare_backtrace;
 
-  var backtrace = err.stack;
-  Error.prepareStackTrace = old;
-
-  if (backtrace && backtrace.join) {
-    return backtrace;
-  }
-
-  return ["No backtrace available"];
-}
-
-function prepare_backtrace(error, stack) {
-  var code = [], f, b, k, name, self;
-
-  for (var i = 0; i < stack.length; i++) {
-    f = stack[i];
-    b = f.getFunction();
-    name = f.getMethodName();
-    self = f.getThis();
-    
-    if (!self.$klass || !name) {
-      continue;
-    }
-    
-    self  = (self.$flags & T_OBJECT ?
-           class_real(self.$klass).__classid__ + '#' :
-           self.__classid__ + '.');
-
-    code.push("from " + self + jsid_to_mid(name) + ' at ' + f.getFileName() + ":" + f.getLineNumber());
-  }
-
-  return code;
-}
-
-// Print error backtrace to console
-opal.backtrace = opal.bt = function(err) {
-  console.log(err.$klass.__classid__ + ": " + err.message);
-  console.log("\t" + exc_backtrace(err).join("\n\t"));
-};
 // Initialization
 // --------------
 
@@ -948,15 +834,15 @@ var top_self = opal.top = new RubyObject.$allocator();
 var RubyNilClass  = define_class(RubyObject, 'NilClass', RubyObject);
 var nil = opal.nil = new RubyNilClass.$allocator();
 
-var RubyArray     = bridge_class(Array, T_OBJECT | T_ARRAY, 'Array');
-var RubyNumeric   = bridge_class(Number, T_OBJECT | T_NUMBER, 'Numeric');
+bridge_class(Array, T_OBJECT | T_ARRAY, 'Array');
+bridge_class(Number, T_OBJECT | T_NUMBER, 'Numeric');
 
-var RubyHash      = bridge_class(Hash, T_OBJECT, 'Hash');
+bridge_class(Hash, T_OBJECT, 'Hash');
 
-var RubyString    = bridge_class(String, T_OBJECT | T_STRING, 'String');
-var RubyBoolean   = bridge_class(Boolean, T_OBJECT | T_BOOLEAN, 'Boolean');
-var RubyProc      = bridge_class(Function, T_OBJECT | T_PROC, 'Proc');
-var RubyRegexp    = bridge_class(RegExp, T_OBJECT, 'Regexp');
+bridge_class(String, T_OBJECT | T_STRING, 'String');
+bridge_class(Boolean, T_OBJECT | T_BOOLEAN, 'Boolean');
+bridge_class(Function, T_OBJECT | T_PROC, 'Proc');
+bridge_class(RegExp, T_OBJECT, 'Regexp');
 
 var RubyMatch     = define_class(RubyObject, 'MatchData', RubyObject);
 var RubyRange     = define_class(RubyObject, 'Range', RubyObject);
@@ -977,17 +863,90 @@ var RubyRangeError     = define_class(RubyObject, 'RangeError', RubyStandardErro
 var RubyNotImplError   = define_class(RubyObject, 'NotImplementedError', RubyException);
 
 RubyException.$allocator.prototype.toString = function() {
-  return this.$klass.__classid__ + ': ' + this.message;
+  return this.$klass.$name + ': ' + this.message;
 };
 
 var breaker = opal.breaker  = new Error('unexpected break');
     breaker.$klass              = RubyLocalJumpError;
     breaker.$t              = function() { throw this; };
 
-var method_names = {'==': 'm$eq$', '===': 'm$eqq$', '[]': 'm$aref$', '[]=': 'm$aset$', '~': 'm$tild$', '<=>': 'm$cmp$', '=~': 'm$match$', '+': 'm$plus$', '-': 'm$minus$', '/': 'm$div$', '*': 'm$mul$', '<': 'm$lt$', '<=': 'm$le$', '>': 'm$gt$', '>=': 'm$ge$', '<<': 'm$lshft$', '>>': 'm$rshft$', '|': 'm$or$', '&': 'm$and$', '^': 'm$xor$', '+@': 'm$uplus$', '-@': 'm$uminus$', '%': 'm$mod$', '**': 'm$pow$'};
-var reverse_method_names = {}; for (var id in method_names) {
-reverse_method_names[method_names[id]] = id;}
-(function($opal) {var nil = $opal.nil, $const = $opal.constants, _a, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $defn = $opal.defn, $defs = $opal.defs, $const_get = $opal.const_get, $slice = $opal.slice;
+
+// ..........................................................
+// DEBUG - this is only included in debug mode
+//
+
+// Identify opal as being in debug mode
+opal.debug = true;
+
+// An array of every method send in debug mode
+var debug_stack = [];
+
+opal.send = function(file, line, recv, block, jsid) {
+  var args    = $slice.call(arguments, 5),
+      meth    = recv[jsid],
+      result;
+
+  if (!meth) {
+    throw new Error('need to call method_missing in opal.send for ' + jsid);
+  }
+
+  // Always set a block. If a block wasn't given then this is just a
+  // no-op.
+  meth.$P = block;
+
+  // Push this call frame onto debug stack
+  debug_stack.push({
+    file: file,
+    line: line,
+    recv: recv,
+    jsid: jsid,
+    args: args,
+    meth: meth
+  });
+
+  try {
+    result = meth.apply(recv, args);
+  }
+  catch (err) {
+    err.opal_stack = (err.opal_stack || []).concat(debug_stack);
+    debug_stack    = [];
+
+    throw err;
+  }
+
+  debug_stack.pop();
+
+  return result;
+};
+
+function get_debug_backtrace(err) {
+  var result = [],
+      stack  = err.opal_stack || [],
+      frame,
+      recv;
+
+  for (var i = stack.length - 1; i >= 0; i--) {
+    frame = stack[i];
+    recv  = frame.recv;
+    recv  = (recv.$flags & T_OBJECT ?
+      class_real(recv.$klass).$name + '#' :
+      recv.$name + '.');
+
+    result.push('from ' + recv + jsid_to_mid(frame.jsid) + ' at ' + frame.file + ':' + frame.line);
+  }
+
+  return result;
+}
+
+
+      var method_names = {'==': '$eq$', '===': '$eqq$', '[]': '$aref$', '[]=': '$aset$', '~': '$tild$', '<=>': '$cmp$', '=~': '$match$', '+': '$plus$', '-': '$minus$', '/': '$div$', '*': '$mul$', '<': '$lt$', '<=': '$le$', '>': '$gt$', '>=': '$ge$', '<<': '$lshft$', '>>': '$rshft$', '|': '$or$', '&': '$and$', '^': '$xor$', '+@': '$uplus$', '-@': '$uminus$', '%': '$mod$', '**': '$pow$'};
+      var reverse_method_names = {};
+      for (var id in method_names) {
+        reverse_method_names[method_names[id]] = id;
+      }
+    
+opal.FILE = '/core/alpha.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;
 ($opal.gvars["$LOAD_PATH"] = ($opal.gvars["$:"] = LOADER_PATHS));
 
 
@@ -996,19 +955,21 @@ reverse_method_names[method_names[id]] = id;}
 $const.RUBY_ENGINE = "opal-browser";
 $const.RUBY_PLATFORM = "opal";
 $const.RUBY_VERSION = "1.9.2";
-$const.ARGV = [];
-$klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$eqq$ = function($yield, object) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+return $const.ARGV = [];
+}).call(opal.top, opal);
+opal.FILE = '/core/module.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Module", function() {var $const = this.$const, def = this.$proto; 
+  def.$eqq$ = function(object) {var _a; 
 
-    return ((_a=object).m$kind_of$p || $opal.mm('m$kind_of$p')).call(_a, null, this);};
+    return $send(FILE, 3, object, null, "$kind_of$p", this);};
 
-  $proto.m$alias_method = function($yield, newname, oldname) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 2) { $opal.arg_error($arity, 2); }
+  def.$alias_method = function(newname, oldname) {
     $opal.alias(this, newname, oldname);
 
     return this;
   };
 
-  $proto.m$ancestors = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$ancestors = function() {
 
     
       var parent = this,
@@ -1025,13 +986,13 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return result;
     };
 
-  $proto.m$append_features = function($yield, mod) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$append_features = function(mod) {
     include_module(mod, this);
 
     return this;
   };
 
-  $proto.m$attr_accessor = function($yield, attrs) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }attrs = $slice.call(arguments, 1);
+  def.$attr_accessor = function(attrs) {attrs = $slice.call(arguments, 0);
 
     
       for (var i = 0, length = attrs.length; i < length; i++) {
@@ -1041,17 +1002,7 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return nil;
     };
 
-  $proto.m$attr_accessor_bridge = function($yield, target, attrs) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }attrs = $slice.call(arguments, 2);
-
-    
-      for (var i = 0, length = attrs.length; i < length; i++) {
-        define_attr_bridge(this, target, attrs[i], true, true);
-      }
-
-      return nil;
-    };
-
-  $proto.m$attr_reader = function($yield, attrs) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }attrs = $slice.call(arguments, 1);
+  def.$attr_reader = function(attrs) {attrs = $slice.call(arguments, 0);
 
     
       for (var i = 0, length = attrs.length; i < length; i++) {
@@ -1061,17 +1012,7 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return nil;
     };
 
-  $proto.m$attr_reader_bridge = function($yield, target, attrs) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }attrs = $slice.call(arguments, 2);
-
-    
-      for (var i = 0, length = attrs.length; i < length; i++) {
-        define_attr_bridge(this, target, attrs[i], true, false);
-      }
-
-      return nil;
-    };
-
-  $proto.m$attr_writer = function($yield, attrs) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }attrs = $slice.call(arguments, 1);
+  def.$attr_writer = function(attrs) {attrs = $slice.call(arguments, 0);
 
     
       for (var i = 0, length = attrs.length; i < length; i++) {
@@ -1081,29 +1022,13 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return nil;
     };
 
-  $proto.m$attr_reader_bridge = function($yield, target, attrs) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }attrs = $slice.call(arguments, 2);
-
-    
-      for (var i = 0, length = attrs.length; i < length; i++) {
-        define_attr_bridge(this, target, attrs[i], false, true);
-      }
-
-      return nil;
-    };
-
-  $proto.m$attr = function($yield, name, setter) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }if (setter === undefined) { setter = false; }
+  def.$attr = function(name, setter) {if (setter === undefined) { setter = false; }
     define_attr(this, name, true, setter);
 
     return this;
   };
 
-  $proto.m$attr_bridge = function($yield, target, name, setter) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 2) { $opal.arg_error($arity, -3); }if (setter === undefined) { setter = false; }
-    define_attr_bridge(this, target, name, true, setter);
-
-    return this;
-  };
-
-  $proto.m$define_method = function($yield, name) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }var $block_given = ($yield != null); var body = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$define_method = $TMP_1 = function(name) {var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, body = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, body = nil; }
 
     
       if (body === nil) {
@@ -1111,28 +1036,18 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       }
 
       define_method(this, mid_to_jsid(name), body);
-      this.$methods.push(name);
 
       return nil;
     };
 
-  $proto.m$define_method_bridge = function($yield, object, name, ali) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 2) { $opal.arg_error($arity, -3); }if (ali === undefined) { ali = nil; }
-
-    
-      define_method_bridge(this, object, mid_to_jsid((_a = ali, _a !== false && _a != nil ? _a : name)), name);
-      this.$methods.push(name);
-
-      return nil;
-    };
-
-  $proto.m$include = function($yield, mods) {var mod = nil, _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }mods = $slice.call(arguments, 1);
+  def.$include = function(mods) {var mod = nil, _a; mods = $slice.call(arguments, 0);
 
     
       var i = mods.length - 1, mod;
       while (i >= 0) {
         mod = mods[i];
-        ((_a=mod).m$append_features || $opal.mm('m$append_features')).call(_a, null, this);
-        ((_a=mod).m$included || $opal.mm('m$included')).call(_a, null, this);
+        $send(FILE, 45, mod, null, "$append_features", this);
+        $send(FILE, 45, mod, null, "$included", this);
 
         i--;
       }
@@ -1140,15 +1055,15 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return this;
     };
 
-  $proto.m$instance_methods = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
 
-    return this.$methods;};
+  def.$instance_methods = function() {
 
-  $proto.m$included = function($yield, mod) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+    return [];};
 
+  def.$included = function(mod) {
     return nil;};
 
-  $proto.m$module_eval = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$module_eval = $TMP_2 = function() {var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_2.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       if (block === nil) {
@@ -1158,44 +1073,46 @@ $klass(this, nil, "Module", function() {var $const = this.$const, $proto = this.
       return block.call(this, null);
     };
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "class_eval", "module_eval");
+  $opal.alias(this, "class_eval", "module_eval");
 
-  $proto.m$name = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$name = function() {
 
-    return this.__classid__;};
+    return this.$name;};
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "public_instance_methods", "instance_methods");
+  $opal.alias(this, "public_instance_methods", "instance_methods");
 
-  return ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "to_s", "name");
-}, 0);
-$klass(this, nil, "Class", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$new', function($yield, sup) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (sup === undefined) { sup = $opal.const_get($const, "Object"); }
+  return $opal.alias(this, "to_s", "name");
+}, 0);var $TMP_1, $TMP_2;
+}).call(opal.top, opal);
+opal.FILE = '/core/class.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Class", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$new', $TMP_1 = function(sup) {var _a; var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, block = nil; }if (sup === undefined) { sup = $opal.const_get($const, "Object"); }
     
-      var klass             = boot_class(sup);
-          klass.__classid__ = "AnonClass";
+      var klass       = boot_class(sup);
+          klass.$name = "AnonClass";
 
       make_metaclass(klass, sup.$klass);
 
-      ((_a=sup).m$inherited || $opal.mm('m$inherited')).call(_a, null, klass);
+      $send(FILE, 3, sup, null, "$inherited", klass);
 
       return block !== nil ? block.call(klass, null) : klass;
     
   });
 
-  $proto.m$allocate = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$allocate = function() {
 
     return new this.$allocator();};
 
-  $proto.m$new = function($yield, args) {var obj = nil, _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;args = $slice.call(arguments, 1);
-    obj = ((_a=this).m$allocate || $opal.mm('m$allocate')).call(_a);
-    ((_b=obj).m$initialize || $opal.mm('m$initialize')).apply(_b, [
-    (_b = block, (typeof(_b) === 'function' || _b == nil ? _b : ((_c=_b).m$to_proc || $opal.mm('m$to_proc')).call(_c)))].concat(args));
+  def.$new = $TMP_2 = function(args) {var obj = nil, _a, _b, _c, _d; var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_2.$P = null; }else { $yield = $no_proc, block = nil; }args = $slice.call(arguments, 0);
+    obj = $send(FILE, 11, this, null, "$allocate");
+    $send.apply(null, [FILE, 12, obj, 
+    (_c = block, (typeof(_c) === 'function' || _c == nil ? _c : $send(FILE, 13, _c, null, "$to_proc"))), "$initialize"].concat(args));
     return obj;};
 
-  $proto.m$inherited = function($yield, cls) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$inherited = function(cls) {
     return nil;};
 
-  return $proto.m$superclass = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  return def.$superclass = function() {
 
     
       var sup = this.$s;
@@ -1210,32 +1127,31 @@ $klass(this, nil, "Class", function() {var $const = this.$const, $proto = this.$
 
       return sup;
     };
-}, 0);
-
-$klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$match$ = function($yield, obj) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+}, 0);var $TMP_1, $TMP_2;
+}).call(opal.top, opal);
+opal.FILE = '/core/kernel.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Kernel", function() {var $const = this.$const, def = this.$proto; 
+  def.$match$ = function(obj) {
 
     return false;};
 
-  $proto.m$eqq$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$eqq$ = function(other) {
 
     return this == other;};
 
-  $proto.m$Object = function($yield, object) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-
-    if ((_a = (!!(_b = object, _b == null || !_b.$klass))) !== false && _a !== nil) {return ((_a=$opal.const_get(($opal.const_get($const, "Native")).$const, "Object")).m$new || $opal.mm('m$new')).call(_a, null, object)} else {return object};};
-
-  $proto.m$Array = function($yield, object) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$Array = function(object) {var _a; 
 
 
-    if ((_a = object) !== false && _a !== nil) {} else {return []};if ((_a = (!!(_b = object, _b == null || !_b.$klass))) !== false && _a !== nil) {} else {
-      if ((_a = ((_b=object).m$respond_to$p || $opal.mm('m$respond_to$p')).call(_b, null, "to_ary")) !== false && _a !== nil) {return ((_a=object).m$to_ary || $opal.mm('m$to_ary')).call(_a)
-      };if ((_a = ((_b=object).m$respond_to$p || $opal.mm('m$respond_to$p')).call(_b, null, "to_a")) !== false && _a !== nil) {return ((_a=object).m$to_a || $opal.mm('m$to_a')).call(_a)
-      };};
+    if ((_a = object) !== false && _a !== nil) {} else {return []};
+      if (object.$to_ary) {
+        return $send(FILE, 13, object, null, "$to_ary");
+      }
+      else if (object.$to_a) {
+        return $send(FILE, 13, object, null, "$to_a");
+      }
 
-    
       var length = object.length || 0,
-          result = new Array(length);
+          result = [];
 
       while (length--) {
         result[length] = object[length];
@@ -1245,7 +1161,7 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
     
   };
 
-  $proto.m$at_exit = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$at_exit = $TMP_1 = function() {var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       if (block === nil) {
@@ -1257,11 +1173,11 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return block;
     };
 
-  $proto.m$class = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$class = function() {
 
     return class_real(this.$klass);};
 
-  $proto.m$define_singleton_method = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var body = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$define_singleton_method = $TMP_2 = function() {var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true, body = $yield; $TMP_2.$P = null; }else { $yield = $no_proc, body = nil; }
 
     
       if (body === nil) {
@@ -1273,11 +1189,11 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return this;
     };
 
-  $proto.m$equal$p = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$equal$p = function(other) {
 
     return this === other;};
 
-  $proto.m$extend = function($yield, mods) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }mods = $slice.call(arguments, 1);
+  def.$extend = function(mods) {mods = $slice.call(arguments, 0);
 
     
       for (var i = 0, length = mods.length; i < length; i++) {
@@ -1287,23 +1203,23 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return this;
     };
 
-  $proto.m$hash = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$hash = function() {
 
     return this.$id;};
 
-  $proto.m$inspect = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$inspect = function() {var _a; 
 
-    return ((_a=this).m$to_s || $opal.mm('m$to_s')).call(_a);};
+    return $send(FILE, 42, this, null, "$to_s");};
 
-  $proto.m$instance_of$p = function($yield, klass) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$instance_of$p = function(klass) {
 
     return this.$klass === klass;};
 
-  $proto.m$instance_variable_defined$p = function($yield, name) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$instance_variable_defined$p = function(name) {
 
-    this.hasOwnProperty(name.substr(1));};
+    return hasOwnProperty.call(this, name.substr(1));};
 
-  $proto.m$instance_variable_get = function($yield, name) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$instance_variable_get = function(name) {
 
     
       var ivar = this[name.substr(1)];
@@ -1311,11 +1227,11 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return ivar == undefined ? nil : ivar;
     };
 
-  $proto.m$instance_variable_set = function($yield, name, value) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 2) { $opal.arg_error($arity, 2); }
+  def.$instance_variable_set = function(name, value) {
 
     return this[name.substr(1)] = value;};
 
-  $proto.m$instance_variables = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$instance_variables = function() {
 
     
       var result = [];
@@ -1327,7 +1243,7 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return result;
     };
 
-  $proto.m$is_a$p = function($yield, klass) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$is_a$p = function(klass) {
 
     
       var search = this.$klass;
@@ -1343,18 +1259,18 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
       return false;
     };
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "kind_of?", "is_a?");
+  $opal.alias(this, "kind_of?", "is_a?");
 
-  $proto.m$lambda = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$lambda = $TMP_3 = function() {var $yield = $TMP_3.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_3.$P = null; }else { $yield = $no_proc, block = nil; }
 
     return block;};
 
-  $proto.m$loop = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$loop = $TMP_4 = function() {var _a; var $yield = $TMP_4.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_4.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "loop")};
+    if ($block_given) {} else {return $send(FILE, 75, this, null, "$enum_for", "loop")};
       while (true) {
-        if ($yield.call($context, null) === breaker) {
+        if ($yield.call($context) === breaker) {
           return breaker.$v;
         }
       }
@@ -1363,44 +1279,44 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
     
   };
 
-  $proto.m$nil$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$nil$p = function() {
 
     return false;};
 
-  $proto.m$object_id = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$object_id = function() {
 
     return this.$id || (this.$id = unique_id++);};
 
-  $proto.m$print = function($yield, strs) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }strs = $slice.call(arguments, 1);
+  def.$print = function(strs) {var _a, _b; strs = $slice.call(arguments, 0);
 
-    return ((_a=((_b = $opal.gvars["$stdout"]) == null ? nil : _b)).m$print || $opal.mm('m$print')).apply(_a, [null].concat(strs));};
+    return $send.apply(null, [FILE, 89, ((_b = $opal.gvars["$stdout"]) == null ? nil : _b), null, "$print"].concat(strs));};
 
-  $proto.m$proc = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$proc = $TMP_5 = function() {var $yield = $TMP_5.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_5.$P = null; }else { $yield = $no_proc, block = nil; }
 
     return block;};
 
-  $proto.m$puts = function($yield, strs) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }strs = $slice.call(arguments, 1);
+  def.$puts = function(strs) {var _a, _b; strs = $slice.call(arguments, 0);
 
-    return ((_a=((_b = $opal.gvars["$stdout"]) == null ? nil : _b)).m$puts || $opal.mm('m$puts')).apply(_a, [null].concat(strs));};
+    return $send.apply(null, [FILE, 97, ((_b = $opal.gvars["$stdout"]) == null ? nil : _b), null, "$puts"].concat(strs));};
 
-  $proto.m$raise = function($yield, exception, string) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }if (string === undefined) { string = undefined; }
+  def.$raise = function(exception, string) {var _a, _b; 
 
     
-      if ((typeof exception === 'string')) {
-        exception = ((_a=(RubyRuntimeError)).m$new || $opal.mm('m$new')).call(_a, null, exception);
+      if (typeof(exception) === 'string') {
+        exception = $send(FILE, 101, (RubyRuntimeError), null, "$new", exception);
       }
-      else if (((_a = ((_b=exception).m$is_a$p || $opal.mm('m$is_a$p')).call(_b, null, RubyException)) === false || _a === nil)) {
-        exception = ((_a=(exception)).m$new || $opal.mm('m$new')).call(_a, null, string);
+      else if (((_a = $send(FILE, 101, exception, null, "$is_a$p", RubyException)) === false || _a === nil)) {
+        exception = $send(FILE, 101, (exception), null, "$new", string);
       }
 
       throw exception;
     };
 
-  $proto.m$rand = function($yield, max) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (max === undefined) { max = undefined; }
+  def.$rand = function(max) {
 
     return max === undefined ? Math.random() : Math.floor(Math.random() * max);};
 
-  $proto.m$require = function($yield, path) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$require = function(path) {
 
     
       var resolved = find_lib(path);
@@ -1415,62 +1331,53 @@ $klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.
 
       LOADER_CACHE[resolved] = true;
       $opal.FILE = resolved;
-      FACTORIES[resolved].call(top_self, resolved, $opal);
+      FACTORIES[resolved]();
 
       return true;
     };
 
-  $proto.m$respond_to$p = function($yield, name) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$respond_to$p = function(name) {
 
-    
-      var meth = this[mid_to_jsid(name)];
-      return !!meth;
-    };
+    return !!this[mid_to_jsid(name)];};
 
-  $proto.m$singleton_class = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$singleton_class = function() {
 
     return singleton_class(this);};
 
-  $proto.m$tap = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$tap = $TMP_6 = function() {var $yield = $TMP_6.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_6.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       if (block === nil) {
         raise(RubyLocalJumpError, 'no block given');
       }
 
-      if ($yield.call($context, null, this) === breaker) {
+      if ($yield.call($context, this) === breaker) {
         return breaker.$v;
       }
 
       return this;
     };
 
-  $proto.m$to_s = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_s = function() {
 
-    return inspect_object(this);};;this.$donate(["m$match$", "m$eqq$", "m$Object", "m$Array", "m$at_exit", "m$class", "m$define_singleton_method", "m$equal$p", "m$extend", "m$hash", "m$inspect", "m$instance_of$p", "m$instance_variable_defined$p", "m$instance_variable_get", "m$instance_variable_set", "m$instance_variables", "m$is_a$p", "m$lambda", "m$loop", "m$nil$p", "m$object_id", "m$print", "m$proc", "m$puts", "m$raise", "m$rand", "m$require", "m$respond_to$p", "m$singleton_class", "m$tap", "m$to_s"]);
-}, 1);
-
-$klass(this, nil, "BasicObject", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$initialize = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+    return inspect_object(this);};;this.$donate(["$match$", "$eqq$", "$Array", "$at_exit", "$class", "$define_singleton_method", "$equal$p", "$extend", "$hash", "$inspect", "$instance_of$p", "$instance_variable_defined$p", "$instance_variable_get", "$instance_variable_set", "$instance_variables", "$is_a$p", "$lambda", "$loop", "$nil$p", "$object_id", "$print", "$proc", "$puts", "$raise", "$rand", "$require", "$respond_to$p", "$singleton_class", "$tap", "$to_s"]);
+}, 1);var $TMP_1, $TMP_2, $TMP_3, $TMP_4, $TMP_5, $TMP_6;
+}).call(opal.top, opal);
+opal.FILE = '/core/basic_object.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "BasicObject", function() {var $const = this.$const, def = this.$proto; 
+  def.$initialize = function() {
     return nil;};
 
-  $proto.m$eq$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$eq$ = function(other) {
 
     return this === other;};
 
-  $proto.m$__send__ = function($yield, symbol, args) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;args = $slice.call(arguments, 2);
+  def.$__send__ = $TMP_1 = function(symbol, args) {var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, block = nil; }args = $slice.call(arguments, 1);
 
     
-      var meth = this[mid_to_jsid(symbol)];
+      var meth = this[mid_to_jsid(symbol)] || $opal.mm(mid_to_jsid(symbol));
 
-      if (meth) {
-        args.unshift(null);
-
-        return meth.apply(this, args);
-      }
-      else {
-        throw new Error("method missing yielder for " + symbol + " in __send__");
-      }
+      return meth.apply(this, args);
     };
 
   $opal.alias(this, "send", "__send__");
@@ -1478,350 +1385,287 @@ $klass(this, nil, "BasicObject", function() {var $const = this.$const, $proto = 
   $opal.alias(this, "eql?", "==");
   $opal.alias(this, "equal?", "==");
 
-  $proto.m$instance_eval = function($yield, string) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (string === undefined) { string = nil; }
+  def.$instance_eval = $TMP_2 = function(string) {var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_2.$P = null; }else { $yield = $no_proc, block = nil; }if (string === undefined) { string = nil; }
 
     
       if (block === nil) {
         raise(RubyArgError, 'block not supplied');
       }
 
-      return block.call(this, null, this);
+      return block.call(this, this);
     };
 
-  $proto.m$instance_exec = function($yield, args) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;args = $slice.call(arguments, 1);
+  def.$instance_exec = $TMP_3 = function(args) {var $yield = $TMP_3.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_3.$P = null; }else { $yield = $no_proc, block = nil; }args = $slice.call(arguments, 0);
 
     
       if (block === nil) {
         raise(RubyArgError, 'block not supplied');
       }
-
-      args.unshift(null);
 
       return block.apply(this, args);
     };
 
-  $proto.m$method_missing = function($yield, symbol, args) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }args = $slice.call(arguments, 2);
+  def.$method_missing = function(symbol, args) {var _a; args = $slice.call(arguments, 1);
 
-    return raise(RubyNoMethodError, 'undefined method `' + symbol + '` for ' + ((_a=this).m$inspect || $opal.mm('m$inspect')).call(_a));};
+    return raise(RubyNoMethodError, 'undefined method `' + symbol + '` for ' + $send(FILE, 27, this, null, "$inspect"));};
 
-  $proto.m$singleton_method_added = function($yield, symbol) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-
+  def.$singleton_method_added = function(symbol) {
     return nil;};
 
-  $proto.m$singleton_method_removed = function($yield, symbol) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-
+  def.$singleton_method_removed = function(symbol) {
     return nil;};
 
-  $proto.m$singleton_method_undefined = function($yield, symbol) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$singleton_method_undefined = function(symbol) {
+    return nil;};;this.$donate(["$initialize", "$eq$", "$__send__", "$instance_eval", "$instance_exec", "$method_missing", "$singleton_method_added", "$singleton_method_removed", "$singleton_method_undefined"]);
+}, 0);var $TMP_1, $TMP_2, $TMP_3;
+}).call(opal.top, opal);
+opal.FILE = '/core/object.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Object", function() {var $const = this.$const, def = this.$proto; 
 
-    return nil;};;this.$donate(["m$initialize", "m$eq$", "m$__send__", "m$instance_eval", "m$instance_exec", "m$method_missing", "m$singleton_method_added", "m$singleton_method_removed", "m$singleton_method_undefined"]);
-}, 0);
 
-$klass(this, nil, "Object", function() {var $const = this.$const, $proto = this.$proto; 
+  $send(FILE, 4, this, null, "$include", $opal.const_get($const, "Kernel"));
+  def.$methods = function() {
+
+    return [];};
+
+  $opal.alias(this, "private_methods", "methods");
+  $opal.alias(this, "protected_methods", "methods");
+  $opal.alias(this, "public_methods", "methods");
 
 
-  ((_a=this).m$include || $opal.mm('m$include')).call(_a, null, $opal.const_get($const, "Kernel"));$proto.m$methods = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$singleton_methods = function() {
 
-    return this.$klass.$methods;};
-
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "private_methods", "methods");
-
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "protected_methods", "methods");
-
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "public_methods", "methods");
-
-  $proto.m$singleton_methods = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"), "Object#singleton_methods not yet implemented");};
-
-  $proto.m$to_native = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "TypeError"), "no specialized #to_native has been implemented");};;this.$donate(["m$methods", "m$singleton_methods", "m$to_native"]);
-}, 0);
-
-$defs(this, 'm$to_s', function(
-  $yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }return "main"
+    return [];};;this.$donate(["$methods", "$singleton_methods"]);
+}, 0)
+}).call(opal.top, opal);
+opal.FILE = '/core/top_self.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;$opal.defs(this, '$to_s', function(
+  ) {return "main"
 });
 
-$defs(this, 'm$include', function($yield, mod) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-  return ((_a=$opal.const_get($const, "Object")).m$include || $opal.mm('m$include')).call(_a, 
-  null, mod)});
+return $opal.defs(this, '$include', function(mod) {var _a; 
+  return $send(
+  FILE, 6, $opal.const_get($const, "Object"), null, "$include", mod)});
+}).call(opal.top, opal);
+opal.FILE = '/core/boolean.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;$klass(this, nil, "Boolean", function() {var $const = this.$const, def = this.$proto; 
+  def.$and$ = function(other) {
 
-$klass(this, nil, "Boolean", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$and$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+    return (this == true) ? (other !== false && other !== nil) : false;};
 
-    return this.valueOf() ? (other !== false && other !== nil) : false;};
+  def.$or$ = function(other) {
 
-  $proto.m$or$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+    return (this == true) ? true : (other !== false && other !== nil);};
 
-    return this.valueOf() ? true : (other !== false && other !== nil);};
+  def.$xor$ = function(other) {
 
-  $proto.m$xor$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+    return (this == true) ? (other === false || other === nil) : (other !== false && other !== nil);};
 
-    return this.valueOf() ? (other === false || other === nil) : (other !== false && other !== nil);};
+  def.$eq$ = function(other) {
 
-  $proto.m$eq$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+    return (this == true) === other.valueOf();};
 
-    return this.valueOf() === other.valueOf();};
+  def.$class = function() {
 
-  $proto.m$class = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+    return (this == true) ? $opal.const_get($const, "TrueClass") : $opal.const_get($const, "FalseClass");};
 
-    return this.valueOf() ? $opal.const_get($const, "TrueClass") : $opal.const_get($const, "FalseClass");};
+  return def.$to_s = function() {
 
-  $proto.m$to_native = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return this.valueOf();};
-
-  return $proto.m$to_s = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return this.valueOf() ? 'true' : 'false';};
+    return (this == true) ? 'true' : 'false';};
 }, 0);
 
-$klass(this, nil, "TrueClass", function() {var $const = this.$const, $proto = this.$proto; 
-  return $defs(this, 'm$eqq$', function($yield, obj) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+$klass(this, nil, "TrueClass", function() {var $const = this.$const, def = this.$proto; 
+  return $opal.defs(this, '$eqq$', function(obj) {
     return obj === true;
   })
 }, 0);
 
-$klass(this, nil, "FalseClass", function() {var $const = this.$const, $proto = this.$proto; 
-  return $defs(this, 'm$eqq$', function($yield, obj) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+$klass(this, nil, "FalseClass", function() {var $const = this.$const, def = this.$proto; 
+  return $opal.defs(this, '$eqq$', function(obj) {
     return obj === false;
   })
 }, 0);
 
 $const.TRUE = true;
-$const.FALSE = false;
-
-$klass(this, nil, "NilClass", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$and$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+return $const.FALSE = false;
+}).call(opal.top, opal);
+opal.FILE = '/core/nil_class.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;$klass(this, nil, "NilClass", function() {var $const = this.$const, def = this.$proto; 
+  def.$and$ = function(other) {
 
     return false;};
 
-  $proto.m$or$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$or$ = function(other) {
 
     return other !== false && other !== nil;};
 
-  $proto.m$xor$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$xor$ = function(other) {
 
     return other !== false && other !== nil;};
 
-  $proto.m$eq$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$eq$ = function(other) {
 
     return this === other;};
 
-  $proto.m$inspect = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$inspect = function() {
 
     return "nil";};
 
-  $proto.m$nil$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$nil$p = function() {
 
     return true;};
 
-  $proto.m$to_a = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_a = function() {
 
     return [];};
 
-  $proto.m$to_i = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_i = function() {
 
     return 0;};
 
-  $proto.m$to_f = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  $opal.alias(this, "to_f", "to_i");
 
-    return 0.0;};
-
-  $proto.m$to_native = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    var result; return result;};
-
-  return $proto.m$to_s = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  return def.$to_s = function() {
 
     return "";};
 }, 0);
 
-$const.NIL = nil;
-
-$klass(this, nil, "Native", function() {var $const = this.$const, $proto = this.$proto; 
-  $klass(this, nil, "Object", function() {var $const = this.$const, $proto = this.$proto; 
-
-
-    ((_a=this).m$include || $opal.mm('m$include')).call(_a, null, $opal.const_get($const, "Native"));$proto.m$aref$ = function($yield, name) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-
-      return this['native'][name];};
-
-    $proto.m$aset$ = function($yield, name, value) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 2) { $opal.arg_error($arity, 2); }
-
-      return this['native'][name] = value;};
-
-    $proto.m$nil$p = function($yield) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-      return this['native'] === null || this['native'] === undefined;};
-
-    $proto.m$method_missing = function($yield, name, args) {var _a, _b; this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }args = $slice.call(arguments, 2);
-      if ((_a = (typeof this['native'][name] === 'function')) !== false && _a !== nil) {} else {return $opal.zuper(arguments.callee, this, [])
-
-      };return ((_a=this).m$__native_send__ || $opal.mm('m$__native_send__')).apply(_a, [null, name].concat(
-      args));};;this.$donate(["m$aref$", "m$aset$", "m$nil$p", "m$method_missing"]);
-  }, 0);
-
-  $defs(this, 'm$included', function($yield, klass) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-    return $klass(
-    klass, nil, nil, function() {var $const = this.$const; return $defn(this, 'm$from_native', function($yield, object) {var instance = nil, _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-      instance = 
-      ((_a=this).m$allocate || $opal.mm('m$allocate')).call(_a);((_a=instance).m$instance_variable_set || $opal.mm('m$instance_variable_set')).call(_a, null, "@native", 
-
-      object);
-      return instance;})}, 2)
-
-  });
-
-  $proto.m$initialize = function($yield, native$) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-
-    return this['native'] = native$;};
-
-  $proto.m$to_native = function($yield) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return this['native'];};
-
-  $proto.m$native_send = function($yield, name, args) {var _a, _b; this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }args = $slice.call(arguments, 2);
-    if ((_a = (typeof this['native'][name] === 'function')) !== false && _a !== nil) {} else {return ((_a=this).m$method_missing || $opal.mm('m$method_missing')).apply(_a, [null, name].concat(args))
-
-    };return this['native'][name].apply(this['native'], args);
-  };
-
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "__native_send__", "native_send");;this.$donate(["m$initialize", "m$to_native", "m$native_send"]);
-}, 1);
-
-$klass(this, nil, "Enumerable", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$all$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+return $const.NIL = nil;
+}).call(opal.top, opal);
+opal.FILE = '/core/enumerable.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Enumerable", function() {var $const = this.$const, def = this.$proto; 
+  def.$all$p = $TMP_1 = function() {var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       var result = true;
 
-      if (block !== nil) {
-        this.m$each(function (iter, obj) {
-          var value;
+      this.$each.$P = block !== nil
+        ? function(obj) {
+            var value;
 
-          if ((value = $yield.call($context, null, obj)) === $breaker) {
-            return $breaker.$v;
+            if ((value = $yield.call($context, obj)) === $breaker) {
+              return $breaker.$v;
+            }
+
+            if (value === false || value === nil) {
+              result      = false;
+              $breaker.$v = nil;
+
+              return $breaker;
+            }
           }
+        : function(obj) {
+            if (obj === false || obj === nil) {
+              result      = false;
+              $breaker.$v = nil;
 
-          if (value === false || value === nil) {
-            result      = false;
-            $breaker.$v = nil;
+              return $breaker;
+            }
+          };
 
-            return $breaker;
-          }
-        });
-      }
-      else {
-        this.m$each(function (iter, obj) {
-          if (obj === false || obj === nil) {
-            result      = false;
-            $breaker.$v = nil;
-
-            return $breaker;
-          }
-        });
-      }
+      this.$each();
 
       return result;
     };
 
-  $proto.m$any$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$any$p = $TMP_2 = function() {var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_2.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
-      var result = false, proc;
+      var result = false;
 
-      if (block !== nil) {
-        this.m$each(function (iter, obj) {
-          var value;
+      this.$each.$P = block !== nil
+        ? function(obj) {
+            var value;
 
-          if ((value = $yield.call($context, null, obj)) === $breaker) {
-            return $breaker.$v;
+            if ((value = $yield.call($context, obj)) === $breaker) {
+              return $breaker.$v;
+            }
+
+            if (value !== false && value !== nil) {
+              result      = true;
+              $breaker.$v = nil;
+
+              return $breaker;
+            }
           }
+        : function(obj) {
+            if (obj !== false && obj !== nil) {
+              result      = true;
+              $breaker.$v = nil;
 
-          if (value !== false && value !== nil) {
-            result      = true;
-            $breaker.$v = nil;
+              return $breaker;
+            }
+          };
 
-            return $breaker;
-          }
-        });
-      }
-      else {
-        this.m$each(function (iter, obj) {
-          if (obj !== false && obj !== nil) {
-            result      = true;
-            $breaker.$v = nil;
-
-            return $breaker;
-          }
-        });
-      }
+      this.$each();
 
       return result;
     };
 
-  $proto.m$collect = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$collect = $TMP_3 = function() {var _a; var $yield = $TMP_3.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_3.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "collect")};
+    if ($block_given) {} else {return $send(FILE, 11, this, null, "$enum_for", "collect")};
       var result = [];
 
-      this.m$each(function () {
-        var obj = $slice.call(arguments, 1),
+      this.$each.$P = function () {
+        var obj = $slice.call(arguments),
             value;
 
-        if ((value = $yield.apply($context, [null].concat(obj))) === $breaker) {
+        if ((value = $yield.apply($context, obj)) === $breaker) {
           return $breaker.$v;
         }
 
         result.push(value);
-      });
+      };
+
+      this.$each();
 
       return result;
     
   };
 
-  $proto.m$count = function($yield, object) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (object === undefined) { object = undefined; }
+  def.$count = $TMP_4 = function(object) {var _a; var $yield = $TMP_4.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_4.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       var result = 0;
 
       if (block === nil) {
         if (object === undefined) {
-          $yield = function () { return true; };
+          $yield = function() { return true; };
         }
         else {
-          $yield = function (iter, obj) { return ((_a=(obj)).m$eq$ || $opal.mm('m$eq$')).call(_a, null, object); };
+          $yield = function(obj) { return $send(FILE, 17, (obj), null, "$eq$", object); };
         }
       }
 
-      this.m$each(function (iter, obj) {
+      this.$each.$P = function(obj) {
         var value;
 
-        if ((value = $yield.call($context, null, obj)) === $breaker) {
+        if ((value = $yield.call($context, obj)) === $breaker) {
           return $breaker.$v;
         }
 
         if (value !== false && value !== nil) {
           result++;
         }
-      });
+      };
+
+      this.$each();
 
       return result;
     };
 
-  $proto.m$detect = function($yield, ifnone) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (ifnone === undefined) { ifnone = undefined; }
+  def.$detect = $TMP_5 = function(ifnone) {var _a; var $yield = $TMP_5.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_5.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "detect", ifnone)};
+    if ((_a = block) !== false && _a !== nil) {} else {return $send(FILE, 21, this, null, "$enum_for", "detect", ifnone)};
       var result = nil;
 
-      this.m$each(function(iter, obj) {
+      this.$each.$P = function(obj) {
         var value;
 
-        if ((value = $yield.call($context, null, obj)) === $breaker) {
+        if ((value = $yield.call($context, obj)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -1831,49 +1675,53 @@ $klass(this, nil, "Enumerable", function() {var $const = this.$const, $proto = t
 
           return $breaker;
         }
-      });
+      };
+
+      this.$each();
 
       if (result !== nil) {
         return result;
       }
 
-      if ((typeof ifnone === 'function')) {
-        return ifnone.m$call(null);
+      if (typeof(ifnone) === 'function') {
+        return ifnone.$call();
       }
 
       return ifnone === undefined ? nil : ifnone;
     
   };
 
-  $proto.m$drop = function($yield, number) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$drop = function(number) {var _a; 
 
 
-    ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));
+    $send(FILE, 29, this, null, "$raise", $opal.const_get($const, "NotImplementedError"));
       var result  = [],
           current = 0;
 
-      this.m$each(function(iter, obj) {
+      this.$each.$P = function(obj) {
         if (number < current) {
           result.push(e);
         }
 
         current++;
-      });
+      };
+
+      this.$each();
 
       return result;
     
   };
 
-  $proto.m$drop_while = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$drop_while = $TMP_6 = function() {var _a; var $yield = $TMP_6.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_6.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "drop_while")};
+    if ((_a = block) !== false && _a !== nil) {} else {return $send(FILE, 33, this, null, "$enum_for", "drop_while")};
       var result = [];
 
-      this.m$each(function (iter, obj) {
+      this.$each.$P = function(obj) {
         var value;
 
-        if ((value = $yield.call($context, null, obj)) === $breaker) {
+        if ((value = $yield.call($context, obj)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -1883,58 +1731,63 @@ $klass(this, nil, "Enumerable", function() {var $const = this.$const, $proto = t
         else {
           return $breaker;
         }
-      });
+      };
+
+      this.$each();
 
       return result;
     
   };
 
-  $proto.m$each_with_index = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each_with_index = $TMP_7 = function() {var _a; var $yield = $TMP_7.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_7.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "each_with_index")};
+    if ((_a = block) !== false && _a !== nil) {} else {return $send(FILE, 39, this, null, "$enum_for", "each_with_index")};
       var index = 0;
 
-      this.m$each(function (iter, obj) {
+      this.$each.$P = function(obj) {
         var value;
 
-        if ((value = $yield.call($context, null, obj, index)) === $breaker) {
+        if ((value = $yield.call($context, obj, index)) === $breaker) {
           return $breaker.$v;
         }
 
         index++;
-      });
+      };
+
+      this.$each();
 
       return nil;
     
   };
 
-  $proto.m$entries = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$entries = function() {
 
     
       var result = [];
 
-      this.m$each(function (iter, obj) { return result.push(obj); })
+      this.$each.$P = function(obj) { return result.push(obj); };
+      this.$each();
 
       return result;
     };
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "find", "detect");
+  $opal.alias(this, "find", "detect");
 
-  $proto.m$find_index = function($yield, object) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (object === undefined) { object = undefined; }
+  def.$find_index = $TMP_8 = function(object) {var _a; var $yield = $TMP_8.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_8.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "find_index", object)};
+    if ((_a = block) !== false && _a !== nil) {} else {return $send(FILE, 51, this, null, "$enum_for", "find_index", object)};
       if (object !== undefined) {
-        $yield = function (iter, obj) { return obj.m$eq$(object); };
+        $yield = function (iter, obj) { return obj.$eq$(object); };
       }
 
       var result = nil;
 
-      this.m$each_with_index(function(iter, obj, index) {
+      this.$each_with_index.$P = function(obj, index) {
         var value;
 
-        if ((value = $yield.call($context, null, obj)) === $breaker) {
+        if ((value = $yield.call($context, obj)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -1944,183 +1797,236 @@ $klass(this, nil, "Enumerable", function() {var $const = this.$const, $proto = t
 
           return $breaker;
         }
-      });
+      };
+
+      this.$each_with_index();
 
       return result;
     
   };
 
-  $proto.m$first = function($yield, number) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (number === undefined) { number = undefined; }
+  def.$first = function(number) {
 
     
       var result = [],
           current = 0;
 
-      if (number === undefined) {
-        this.m$each(function (iter, obj) { result = obj; return $breaker; });
-      }
-      else {
-        this.m$each(function (iter, obj) {
-          if (number < current) {
-            return $breaker;
+      this.$each.$P = number === undefined
+        ? function(obj) {
+            result = obj; return $breaker;
           }
+        : function(obj) {
+            if (number <= current) {
+              return $breaker;
+            }
 
-          result.push(obj);
+            result.push(obj);
 
-          current++;
-        });
-      }
+            current++;
+          };
+
+      this.$each();
 
       return result;
     };
 
-  $proto.m$grep = function($yield, pattern) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$grep = $TMP_9 = function(pattern) {var $yield = $TMP_9.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_9.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       var result = [];
 
-      if (block !== nil) {
-        this.m$each(function (iter, obj) {
-          var value = pattern.m$eqq$(obj);
+      this.$each.$P = block !== nil
+        ? function(obj) {
+            var value = pattern.$eqq$(obj);
 
-          if (value !== false && value !== nil) {
-            if ((value = $yield.call($context, null, obj)) === $breaker) {
-              return $breaker.$v;
+            if (value !== false && value !== nil) {
+              if ((value = $yield.call($context, obj)) === $breaker) {
+                return $breaker.$v;
+              }
+
+              result.push(obj);
             }
-
-            result.push(obj);
           }
-        });
-      }
-      else {
-        this.m$each(function (iter, obj) {
-          var value = pattern.m$eqq$(obj);
+        : function(obj) {
+            var value = pattern.$eqq$(obj);
 
-          if (value !== false && value !== nil) {
-            ary.push(obj);
-          }
-        });
-      }
+            if (value !== false && value !== nil) {
+              ary.push(obj);
+            }
+          };
+
+      this.$each();
 
       return result;
     };
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "to_a", "entries");;this.$donate(["m$all$p", "m$any$p", "m$collect", "m$count", "m$detect", "m$drop", "m$drop_while", "m$each_with_index", "m$entries", "m$find_index", "m$first", "m$grep"]);
-}, 1);
+  $opal.alias(this, "take", "first");
 
-$klass(this, nil, "Comparable", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$lt$ = function($yield, other) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-
-    return ((_a=((_b=this).m$cmp$ || $opal.mm('m$cmp$')).call(_b, null, other)).m$eq$ || $opal.mm('m$eq$')).call(_a, null, -1);};
-
-  $proto.m$le$ = function($yield, other) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-
-    return (_a = ((_c=this).m$cmp$ || $opal.mm('m$cmp$')).call(_c, null, other), _b = 0, typeof(_a) === 'number' ? _a <= _b : _a.m$le$(null, _b));};
-
-  $proto.m$eq$ = function($yield, other) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-
-    return ((_a=((_b=this).m$cmp$ || $opal.mm('m$cmp$')).call(_b, null, other)).m$eq$ || $opal.mm('m$eq$')).call(_a, null, 0);};
-
-  $proto.m$gt$ = function($yield, other) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-
-    return ((_a=((_b=this).m$cmp$ || $opal.mm('m$cmp$')).call(_b, null, other)).m$eq$ || $opal.mm('m$eq$')).call(_a, null, 1);};
-
-  $proto.m$ge$ = function($yield, other) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-
-    return (_a = ((_c=this).m$cmp$ || $opal.mm('m$cmp$')).call(_c, null, other), _b = 0, typeof(_a) === 'number' ? _a >= _b : _a.m$ge$(null, _b));};
-
-  $proto.m$between$p = function($yield, min, max) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 2) { $opal.arg_error($arity, 2); }
-
-    return (_a = (_b = this, _c = min, typeof(_b) === 'number' ? _b > _c : _b.m$gt$(null, _c)) ? (_c = this, _b = max, typeof(_c) === 'number' ? _c < _b : _c.m$lt$(null, _b)) : _a);};;this.$donate(["m$lt$", "m$le$", "m$eq$", "m$gt$", "m$ge$", "m$between$p"]);
-}, 1);
+  $opal.alias(this, "to_a", "entries");;this.$donate(["$all$p", "$any$p", "$collect", "$count", "$detect", "$drop", "$drop_while", "$each_with_index", "$entries", "$find_index", "$first", "$grep"]);
+}, 1);var $TMP_1, $TMP_2, $TMP_3, $TMP_4, $TMP_5, $TMP_6, $TMP_7, $TMP_8, $TMP_9;
+}).call(opal.top, opal);
+opal.FILE = '/core/enumerator.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;$klass(this, nil, "Enumerator", function() {var $const = this.$const, def = this.$proto; 
 
 
-
-$klass(this, nil, "Enumerator", function() {var $const = this.$const, $proto = this.$proto; 
-
-
-  ((_a=this).m$include || $opal.mm('m$include')).call(_a, null, $opal.const_get($const, "Enumerable"));$klass(this, nil, "Yielder", function() {var $const = this.$const, $proto = this.$proto; 
-    $proto.m$initialize = function($yield, block) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  $send(FILE, 4, this, null, "$include", $opal.const_get($const, "Enumerable"));$klass(this, nil, "Yielder", function() {var $const = this.$const, def = this.$proto; 
+    def.$initialize = function(block) {
 
       return this.block = block;};
 
-    $proto.m$call = function($yield, block) {var _a; this.block == null && (this.block = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+    def.$call = function(block) {var _a; this.block == null && (this.block = nil);
       this.call = 
 
-      block;return ((_a=this.block).m$call || $opal.mm('m$call')).call(_a);
+      block;return $send(FILE, 12, this.block, null, "$call");
     };
 
-    $proto.m$yield = function($yield, value) {var _a; this.call == null && (this.call = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+    def.$yield = function(value) {var _a; this.call == null && (this.call = nil);
 
-      return ((_a=this.call).m$call || $opal.mm('m$call')).call(_a, null, value);};
+      return $send(FILE, 16, this.call, null, "$call", value);};
 
-    return ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "<<", "yield");
+    return $opal.alias(this, "<<", "yield");
   }, 0);
 
-  $klass(this, nil, "Generator", function() {var $const = this.$const, $proto = this.$proto; 
-    ((_a=this).m$attr_reader || $opal.mm('m$attr_reader')).call(_a, null, "enumerator");
+  $klass(this, nil, "Generator", function() {var $const = this.$const, def = this.$proto; 
+    $send(FILE, 23, this, null, "$attr_reader", "enumerator");
 
-    $proto.m$initialize = function($yield, block) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+    def.$initialize = function(block) {var _a; 
 
-      return this.yielder = ((_a=$opal.const_get($const, "Yielder")).m$new || $opal.mm('m$new')).call(_a, null, block);};
+      return this.yielder = $send(FILE, 26, $opal.const_get($const, "Yielder"), null, "$new", block);};
 
-    return $proto.m$each = function($yield) {var _a; this.yielder == null && (this.yielder = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+    return def.$each = $TMP_1 = function() {var _a; this.yielder == null && (this.yielder = nil);var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, block = nil; }
 
-      return ((_a=this.yielder).m$call || $opal.mm('m$call')).call(_a, null, block);};
+      return $send(FILE, 30, this.yielder, null, "$call", block);};
   }, 0);
 
-  $proto.m$initialize = function($yield, object, method, args) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (object === undefined) { object = nil; }if (method === undefined) { method = "each"; }args = $slice.call(arguments, 3);
+  def.$initialize = $TMP_2 = function(object, method, args) {var _a; var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_2.$P = null; }else { $yield = $no_proc, block = nil; }if (object === undefined) { object = nil; }if (method === undefined) { method = "each"; }args = $slice.call(arguments, 2);
 
-    if ($block_given) {this.object = ((_a=$opal.const_get($const, "Generator")).m$new || $opal.mm('m$new')).call(_a, null, block);
-      method = "each";
+    if ($block_given) {this.object = $send(FILE, 36, $opal.const_get($const, "Generator"), null, "$new", block)
     };
 
 
 
-    if ((_a = object) !== false && _a !== nil) {} else {((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "ArgumentError"), "wrong number of argument (0 for 1+)")};this.object = 
+    if ((_a = object) !== false && _a !== nil) {} else {$send(FILE, 39, this, null, "$raise", $opal.const_get($const, "ArgumentError"), "wrong number of argument (0 for 1+)")};this.object = 
     object;this.method = 
-    method;this.args = 
+    method;return this.args = 
+    args;};
 
-    args;return this.current = 0;
+  def.$next = function() {var result = nil, _a, _b; this.cache == null && (this.cache = nil);this.current == null && (this.current = nil);
+
+
+    $send(FILE, 49, this, null, "$_init_cache");(_a = result = $send(FILE, 49, this.cache, null, "$aref$", this.current), _a !== false && _a != nil ? _a : $send(FILE, 49, this, null, "$raise", $opal.const_get($const, "StopIteration"), "iteration reached an end"));
+    this.current = (_a = this.current, _b = 1, typeof(_a) === 'number' ? _a + _b : _a.$plus$(_b));
+
+
+    return result;};
+
+  def.$next_values = function() {var result = nil, _a, _b; 
+    result = $send(FILE, 56, this, null, "$next");
+
+    if ((_a = $send(FILE, 58, result, null, "$is_a$p", $opal.const_get($const, "Array"))) !== false && _a !== nil) {return result} else {return [result]};
   };
 
-  $proto.m$next = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-    return nil;};
-
-  $proto.m$each = function($yield) {var _a, _b, _c; this.object == null && (this.object = nil);this.method == null && (this.method = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$peek = function() {var _a, _b; this.cache == null && (this.cache = nil);this.current == null && (this.current = nil);
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return this};return ((_b=this.object).m$__send__ || $opal.mm('m$__send__')).apply(_b, [
-    (_b = block, (typeof(_b) === 'function' || _b == nil ? _b : ((_c=_b).m$to_proc || $opal.mm('m$to_proc')).call(_c))), this.method].concat(((_c=this).m$args || $opal.mm('m$args')).call(_c)));};
+    $send(FILE, 64, this, null, "$_init_cache");return (_a = $send(FILE, 64, this.cache, null, "$aref$", this.current), _a !== false && _a != nil ? _a : $send(FILE, 64, this, null, "$raise", $opal.const_get($const, "StopIteration"), "iteration reached an end"));
+  };
 
-  $proto.m$each_with_index = function($yield) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$peel_values = function() {var result = nil, _a, _b; 
+    result = $send(FILE, 68, this, null, "$peek");
 
-    return ((_b=this).m$with_index || $opal.mm('m$with_index')).call(_b, (_b = block, (typeof(_b) === 'function' || _b == nil ? _b : ((_c=_b).m$to_proc || $opal.mm('m$to_proc')).call(_c))));};
+    if ((_a = $send(FILE, 70, result, null, "$is_a$p", $opal.const_get($const, "Array"))) !== false && _a !== nil) {return result} else {return [result]};
+  };
 
-  $proto.m$with_index = function($yield, offset) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (offset === undefined) { offset = 0; }
+  def.$rewind = function() {var _a; 
 
-    if ((_a = block) !== false && _a !== nil) {return nil} else {return ((_a=$opal.const_get($const, "Enumerator")).m$new || $opal.mm('m$new')).call(_a, null, this, "with_index", offset)};};
+    return $send(FILE, 75, this, null, "$_clear_cache");};
 
-  return $proto.m$with_object = function($yield, object) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each = $TMP_3 = function() {var _a, _b, _c, _d; this.object == null && (this.object = nil);this.method == null && (this.method = nil);var $yield = $TMP_3.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_3.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {return nil} else {return ((_a=$opal.const_get($const, "Enumerator")).m$new || $opal.mm('m$new')).call(_a, null, this, "with_object", object)};};
+    if ((_a = block) !== false && _a !== nil) {} else {return this};return $send.apply(null, [FILE, 80, this.object, 
+    (_c = block, (typeof(_c) === 'function' || _c == nil ? _c : $send(FILE, 81, _c, null, "$to_proc"))), "$__send__", this.method].concat($send(FILE, 80, this, null, "$args")));};
+
+  def.$each_with_index = $TMP_4 = function() {var _a, _b, _c, _d; var $yield = $TMP_4.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_4.$P = null; }else { $yield = $no_proc, block = nil; }
+
+    return $send(FILE, 85, this, (_c = block, (typeof(_c) === 'function' || _c == nil ? _c : $send(FILE, 85, _c, null, "$to_proc"))), "$with_index");};
+
+  def.$with_index = $TMP_5 = function(offset) {var current = nil, _a, _b; var $yield = $TMP_5.$P;if ($yield) { var $context = $yield.$S, $block_given = true; $TMP_5.$P = null; }else { $yield = $no_proc; }if (offset === undefined) { offset = 0; }
+
+
+    if ($block_given) {} else {return $send(FILE, 88, $opal.const_get($const, "Enumerator"), null, "$new", this, "with_index", offset)};current = 0;
+
+    return $send(FILE, 98, this, (_a=function(args) {var _a, _b; args = $slice.call(arguments, 0);
+      if ((_a = current, _b = 
+
+      offset, typeof(_a) === 'number' ? _a >= _b : _a.$ge$(_b))) {} else {return nil;};
+
+      $yield.apply($context, args.concat([["current"]]));return current = (_b = current, _a = 1, typeof(_b) === 'number' ? _b + _a : _b.$plus$(_a));
+    },_a.$S=this, _a), "$each");
+  };
+
+  def.$with_object = $TMP_6 = function(object) {var _a, _b; try {var $yield = $TMP_6.$P;if ($yield) { var $context = $yield.$S, $block_given = true; $TMP_6.$P = null; }else { $yield = $no_proc; }
+
+
+    if ($block_given) {} else {return $send(FILE, 102, $opal.const_get($const, "Enumerator"), null, "$new", this, "with_object", object)};return $send(FILE, 106, this, (_a=function(args) {var _a; args = $slice.call(arguments, 0);
+
+      return ((_a = $yield.apply($context, args.concat([["object"]]))) === $breaker ? _a.$t() : _a)},_a.$S=this, _a), "$each");} catch (e) { if (e === $breaker) { return e.$v; }; throw e;}
+  };
+
+  def.$_init_cache = function() {var _a, _b; this.current == null && (this.current = nil);this.cache == null && (this.cache = nil);
+    (_a = this.current, _a !== false && _a != nil ? _a : this.current = 0);
+    return (_a = this.cache, _a !== false && _a != nil ? _a : this.cache = 
+    $send(FILE, 112, this, null, "$to_a"));};
+
+  return def.$_clear_cache = function() {
+    this.cache = nil;
+    return this.current = nil;
+  };
 }, 0);
 
-$klass(this, nil, "Kernel", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$enum_for = function($yield, method, args) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (method === undefined) { method = "each"; }args = $slice.call(arguments, 2);
+return $klass(this, nil, "Kernel", function() {var $const = this.$const, def = this.$proto; 
+  def.$enum_for = function(method, args) {var _a; if (method === undefined) { method = "each"; }args = $slice.call(arguments, 1);
 
-    return ((_a=$opal.const_get($const, "Enumerator")).m$new || $opal.mm('m$new')).apply(_a, [null, this, method].concat(args));};
+    return $send.apply(null, [FILE, 122, $opal.const_get($const, "Enumerator"), null, "$new", this, method].concat(args));};
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "to_enum", "enum_for");;this.$donate(["m$enum_for"]);
-}, 1);
+  $opal.alias(this, "to_enum", "enum_for");;this.$donate(["$enum_for"]);
+}, 1);;var $TMP_1, $TMP_2, $TMP_3, $TMP_4, $TMP_5, $TMP_6;
+}).call(opal.top, opal);
+opal.FILE = '/core/comparable.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Comparable", function() {var $const = this.$const, def = this.$proto; 
+  def.$lt$ = function(other) {var _a, _b; 
 
-$klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$proto; 
+    return $send(FILE, 3, $send(FILE, 3, this, null, "$cmp$", other), null, "$eq$", -1);};
+
+  def.$le$ = function(other) {var _a, _b, _c; 
+
+    return (_a = $send(FILE, 7, this, null, "$cmp$", other), _b = 0, typeof(_a) === 'number' ? _a <= _b : _a.$le$(_b));};
+
+  def.$eq$ = function(other) {var _a, _b; 
+
+    return $send(FILE, 11, $send(FILE, 11, this, null, "$cmp$", other), null, "$eq$", 0);};
+
+  def.$gt$ = function(other) {var _a, _b; 
+
+    return $send(FILE, 15, $send(FILE, 15, this, null, "$cmp$", other), null, "$eq$", 1);};
+
+  def.$ge$ = function(other) {var _a, _b, _c; 
+
+    return (_a = $send(FILE, 19, this, null, "$cmp$", other), _b = 0, typeof(_a) === 'number' ? _a >= _b : _a.$ge$(_b));};
+
+  def.$between$p = function(min, max) {var _a, _b, _c; 
+
+    return (_a = (_b = this, _c = min, typeof(_b) === 'number' ? _b > _c : _b.$gt$(_c)) ? (_c = this, _b = max, typeof(_c) === 'number' ? _c < _b : _c.$lt$(_b)) : _a);};;this.$donate(["$lt$", "$le$", "$eq$", "$gt$", "$ge$", "$between$p"]);
+}, 1)
+}).call(opal.top, opal);
+opal.FILE = '/core/array.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Array", function() {var $const = this.$const, def = this.$proto; 
 
 
-  ((_a=this).m$include || $opal.mm('m$include')).call(_a, null, $opal.const_get($const, "Enumerable"));$defs(this, 'm$aref$', function($yield, objects) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }objects = $slice.call(arguments, 1);
+  $send(FILE, 4, this, null, "$include", $opal.const_get($const, "Enumerable"));$opal.defs(this, '$aref$', function(objects) {var _a; objects = $slice.call(arguments, 0);
     
-      var result = ((_a=this).m$allocate || $opal.mm('m$allocate')).call(_a);
+      var result = $send(FILE, 5, this, null, "$allocate");
 
       result.splice.apply(result, [0, 0].concat(objects));
 
@@ -2128,8 +2034,8 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   });
 
-  $defs(this, 'm$allocate', function(
-    $yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  $opal.defs(this, '$allocate', function(
+    ) {
       var array        = [];
           array.$klass = this;
 
@@ -2137,11 +2043,11 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   });
 
-  $defs(this, 'm$new', function($yield, a) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }a = $slice.call(arguments, 1);
+  $opal.defs(this, '$new', function(a) {a = $slice.call(arguments, 0);
     return [];
   });
 
-  $proto.m$and$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$and$ = function(other) {
 
     
       var result = [],
@@ -2168,10 +2074,10 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$mul$ = function($yield, other) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$mul$ = function(other) {
 
     
-      if ((typeof other === 'string')) {
+      if (typeof(other) === 'string') {
         return this.join(other);
       }
 
@@ -2184,20 +2090,20 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$plus$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$plus$ = function(other) {
 
     return this.slice(0).concat(other.slice(0));};
 
-  $proto.m$lshft$ = function($yield, object) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$lshft$ = function(object) {
     this.push(object);
 
     return this;
   };
 
-  $proto.m$cmp$ = function($yield, other) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$cmp$ = function(other) {var _a; 
 
     
-      if (((_a=this).m$hash || $opal.mm('m$hash')).call(_a) === ((_a=other).m$hash || $opal.mm('m$hash')).call(_a)) {
+      if ($send(FILE, 35, this, null, "$hash") === $send(FILE, 35, other, null, "$hash")) {
         return 0;
       }
 
@@ -2206,7 +2112,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
 
       for (var i = 0, length = this.length, tmp; i < length; i++) {
-        if ((tmp = ((_a=(this[i])).m$cmp$ || $opal.mm('m$cmp$')).call(_a, null, other[i])) !== 0) {
+        if ((tmp = $send(FILE, 35, (this[i]), null, "$cmp$", other[i])) !== 0) {
           return tmp;
         }
       }
@@ -2214,7 +2120,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return 0;
     };
 
-  $proto.m$eq$ = function($yield, other) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$eq$ = function(other) {var _a; 
 
     
       if (this.length !== other.length) {
@@ -2222,7 +2128,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
 
       for (var i = 0, length = this.length; i < length; i++) {
-        if (!((_a=(this[i])).m$eq$ || $opal.mm('m$eq$')).call(_a, null, other[i])) {
+        if (!$send(FILE, 39, (this[i]), null, "$eq$", other[i])) {
           return false;
         }
       }
@@ -2231,7 +2137,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     };
 
 
-  $proto.m$aref$ = function($yield, index, length) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }if (length === undefined) { length = undefined; }
+  def.$aref$ = function(index, length) {
 
     
       var size = this.length;
@@ -2257,7 +2163,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     };
 
 
-  $proto.m$aset$ = function($yield, index, value) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 2) { $opal.arg_error($arity, 2); }
+  def.$aset$ = function(index, value) {
 
     
       var size = this.length;
@@ -2269,11 +2175,11 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this[index] = value;
     };
 
-  $proto.m$assoc = function($yield, object) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$assoc = function(object) {var _a; 
 
     
       for (var i = 0, length = this.length, item; i < length; i++) {
-        if (item = this[i], item.length && ((_a=(item[0])).m$eq$ || $opal.mm('m$eq$')).call(_a, null, object)) {
+        if (item = this[i], item.length && $send(FILE, 53, (item[0]), null, "$eq$", object)) {
           return item;
         }
       }
@@ -2281,7 +2187,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return nil;
     };
 
-  $proto.m$at = function($yield, index) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$at = function(index) {
 
     
       if (index < 0) {
@@ -2295,24 +2201,24 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this[index];
     };
 
-  $proto.m$clear = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$clear = function() {
     this.splice(0);
 
     return this;
   };
 
-  $proto.m$clone = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$clone = function() {
 
     return this.slice(0);};
 
-  $proto.m$collect = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$collect = $TMP_1 = function() {var _a; var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "collect")};
+    if ($block_given) {} else {return $send(FILE, 71, this, null, "$enum_for", "collect")};
       var result = [];
 
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2323,12 +2229,12 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$collect$b = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$collect$b = $TMP_2 = function() {var _a; var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_2.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "collect!")};
+    if ($block_given) {} else {return $send(FILE, 77, this, null, "$enum_for", "collect!")};
       for (var i = 0, length = this.length, val; i < length; i++) {
-        if ((val = $yield.call($context, null, this[i])) === $breaker) {
+        if ((val = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2339,7 +2245,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$compact = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$compact = function() {
 
     
       var result = [];
@@ -2353,7 +2259,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$compact$b = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$compact$b = function() {
 
     
       var original = this.length;
@@ -2370,7 +2276,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.length === original ? nil : this;
     };
 
-  $proto.m$concat = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$concat = function(other) {
     
       for (var i = 0, length = other.length; i < length; i++) {
         this.push(other[i]);
@@ -2380,7 +2286,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$count = function($yield, object) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (object === undefined) { object = undefined; }
+  def.$count = function(object) {var _a; 
 
     
       if (object === undefined) {
@@ -2390,7 +2296,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       var result = 0;
 
       for (var i = 0, length = this.length; i < length; i++) {
-        if (((_a=(this[i])).m$eq$ || $opal.mm('m$eq$')).call(_a, null, object)) {
+        if ($send(FILE, 99, (this[i]), null, "$eq$", object)) {
           result++;
         }
       }
@@ -2398,13 +2304,13 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$delete = function($yield, object) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$delete = function(object) {var _a; 
 
     
       var original = this.length;
 
       for (var i = 0, length = original; i < length; i++) {
-        if (((_a=(this[i])).m$eq$ || $opal.mm('m$eq$')).call(_a, null, object)) {
+        if ($send(FILE, 103, (this[i]), null, "$eq$", object)) {
           this.splice(i, 1);
 
           length--;
@@ -2415,7 +2321,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.length === original ? nil : object;
     };
 
-  $proto.m$delete_at = function($yield, index) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$delete_at = function(index) {
 
     
       if (index < 0) {
@@ -2433,12 +2339,12 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$delete_if = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$delete_if = $TMP_3 = function() {var _a; var $yield = $TMP_3.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_3.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "delete_if")};
+    if ($block_given) {} else {return $send(FILE, 111, this, null, "$enum_for", "delete_if")};
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2454,16 +2360,16 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$drop = function($yield, number) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$drop = function(number) {
 
-    return number > this.length ? [] : this.slice(number);};
+    return this.slice(number);};
 
-  $proto.m$drop_while = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$drop_while = $TMP_4 = function() {var _a; var $yield = $TMP_4.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_4.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "drop_while")};
+    if ($block_given) {} else {return $send(FILE, 123, this, null, "$enum_for", "drop_while")};
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2476,12 +2382,12 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$each = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each = $TMP_5 = function() {var _a; var $yield = $TMP_5.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_5.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "each")};
+    if ($block_given) {} else {return $send(FILE, 129, this, null, "$enum_for", "each")};
       for (var i = 0, length = this.length; i < length; i++) {
-        if ($yield.call($context, null, this[i]) === $breaker) {
+        if ($yield.call($context, this[i]) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -2490,12 +2396,12 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$each_index = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each_index = $TMP_6 = function() {var _a; var $yield = $TMP_6.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_6.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "each_index")};
+    if ($block_given) {} else {return $send(FILE, 137, this, null, "$enum_for", "each_index")};
       for (var i = 0, length = this.length; i < length; i++) {
-        if ($yield.call($context, null, i) === $breaker) {
+        if ($yield.call($context, i) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -2504,12 +2410,12 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$each_with_index = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each_with_index = $TMP_7 = function() {var _a; var $yield = $TMP_7.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_7.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "each_with_index")};
+    if ($block_given) {} else {return $send(FILE, 145, this, null, "$enum_for", "each_with_index")};
       for (var i = 0, length = this.length; i < length; i++) {
-        if ($yield.call($context, null, this[i], i) === $breaker) {
+        if ($yield.call($context, this[i], i) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -2518,11 +2424,11 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$empty$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$empty$p = function() {
 
     return this.length === 0;};
 
-  $proto.m$fetch = function($yield, index, defaults) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (defaults === undefined) { defaults = undefined; }
+  def.$fetch = $TMP_8 = function(index, defaults) {var $yield = $TMP_8.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_8.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       var original = index;
@@ -2540,13 +2446,13 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
 
       if (block !== nil) {
-        return $yield.call($context, null, original);
+        return $yield.call($context, original);
       }
 
       raise(RubyIndexError, 'Array#fetch');
     };
 
-  $proto.m$first = function($yield, count) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (count === undefined) { count = undefined; }
+  def.$first = function(count) {
 
     
       if (count !== undefined) {
@@ -2556,7 +2462,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.length === 0 ? nil : this[0];
     };
 
-  $proto.m$flatten = function($yield, level) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (level === undefined) { level = undefined; }
+  def.$flatten = function(level) {var _a; 
 
     
       var result = [];
@@ -2566,13 +2472,13 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
 
         if (item.$flags & T_ARRAY) {
           if (level === undefined) {
-            result = result.concat(((_a=(item)).m$flatten || $opal.mm('m$flatten')).call(_a));
+            result = result.concat($send(FILE, 165, (item), null, "$flatten"));
           }
           else if (level === 0) {
             result.push(item);
           }
           else {
-            result = result.concat(((_a=(item)).m$flatten || $opal.mm('m$flatten')).call(_a, null, level - 1));
+            result = result.concat($send(FILE, 165, (item), null, "$flatten", level - 1));
           }
         }
         else {
@@ -2583,23 +2489,16 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$flatten$b = function($yield, level) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (level === undefined) { level = undefined; }
+  def.$flatten$b = function(level) {var _a, _b; 
 
     
-      var flattenable = false;
+      var size = this.length;
+      $send(FILE, 169, this, null, "$replace", $send(FILE, 169, this, null, "$flatten", level));
 
-      for (var i = 0, length = this.length; i < length; i++) {
-        if (this[i].$flags & T_ARRAY) {
-          flattenable = true;
-
-          break;
-        }
-      }
-
-      return flattenable ? ((_a=this).m$replace || $opal.mm('m$replace')).call(_a, null, ((_b=this).m$flatten || $opal.mm('m$flatten')).call(_b, null, level)) : nil;
+      return size === this.length ? nil : this;
     };
 
-  $proto.m$grep = function($yield, pattern) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$grep = function(pattern) {var _a; 
 
     
       var result = [];
@@ -2607,7 +2506,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       for (var i = 0, length = this.length, item; i < length; i++) {
         item = this[i];
 
-        if (((_a=pattern).m$eqq$ || $opal.mm('m$eqq$')).call(_a, null, item)) {
+        if ($send(FILE, 173, pattern, null, "$eqq$", item)) {
           result.push(item);
         }
       }
@@ -2615,15 +2514,15 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$hash = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$hash = function() {
 
     return this.$id || (this.$id = unique_id++);};
 
-  $proto.m$include$p = function($yield, member) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$include$p = function(member) {var _a; 
 
     
       for (var i = 0, length = this.length; i < length; i++) {
-        if (((_a=(this[i])).m$eq$ || $opal.mm('m$eq$')).call(_a, null, member)) {
+        if ($send(FILE, 181, (this[i]), null, "$eq$", member)) {
           return true;
         }
       }
@@ -2631,13 +2530,13 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return false;
     };
 
-  $proto.m$index = function($yield, object) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (object === undefined) { object = undefined; }
-    if ((_a = (_b = $block_given ? ((_c=object).m$eq$ || $opal.mm('m$eq$')).call(_c, 
+  def.$index = $TMP_9 = function(object) {var _a, _b, _c; var $yield = $TMP_9.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_9.$P = null; }else { $yield = $no_proc, block = nil; }
+    if ((_a = (_b = $block_given ? $send(
 
-    null, undefined) : _b)) !== false && _a !== nil) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "index")};
+    FILE, 185, object, null, "$eq$", undefined) : _b)) !== false && _a !== nil) {} else {return $send(FILE, 185, this, null, "$enum_for", "index")};
       if (block !== nil) {
         for (var i = 0, length = this.length, value; i < length; i++) {
-          if ((value = $yield.call($context, null, this[i])) === $breaker) {
+          if ((value = $yield.call($context, this[i])) === $breaker) {
             return $breaker.$v;
           }
 
@@ -2648,7 +2547,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
       else {
         for (var i = 0, length = this.length; i < length; i++) {
-          if (((_a=(this[i])).m$eq$ || $opal.mm('m$eq$')).call(_a, null, object)) {
+          if ($send(FILE, 187, (this[i]), null, "$eq$", object)) {
             return i;
           }
         }
@@ -2658,10 +2557,10 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$inject = function($yield, initial) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (initial === undefined) { initial = undefined; }
+  def.$inject = $TMP_10 = function(initial) {var _a; var $yield = $TMP_10.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_10.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "inject")};
+    if ($block_given) {} else {return $send(FILE, 191, this, null, "$enum_for", "inject")};
       var result, i;
 
       if (initial === undefined) {
@@ -2674,7 +2573,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
 
       for (var length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, result, this[i])) === $breaker) {
+        if ((value = $yield.call($context, result, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2685,7 +2584,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$insert = function($yield, index, objects) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }objects = $slice.call(arguments, 2);
+  def.$insert = function(index, objects) {objects = $slice.call(arguments, 1);
     
       if (objects.length > 0) {
         if (index < 0) {
@@ -2708,35 +2607,35 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$inspect = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$inspect = function() {var _a; 
 
     
       var inspect = [];
 
       for (var i = 0, length = this.length; i < length; i++) {
-        inspect.push(((_a=(this[i])).m$inspect || $opal.mm('m$inspect')).call(_a));
+        inspect.push($send(FILE, 203, (this[i]), null, "$inspect"));
       }
 
       return '[' + inspect.join(', ') + ']';
     };
 
-  $proto.m$join = function($yield, sep) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (sep === undefined) { sep = ""; }
+  def.$join = function(sep) {var _a; if (sep === undefined) { sep = ""; }
 
     
       var result = [];
 
       for (var i = 0, length = this.length; i < length; i++) {
-        result.push(((_a=(this[i])).m$to_s || $opal.mm('m$to_s')).call(_a));
+        result.push($send(FILE, 207, (this[i]), null, "$to_s"));
       }
 
       return result.join(sep);
     };
 
-  $proto.m$keep_if = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$keep_if = $TMP_11 = function() {var _a; var $yield = $TMP_11.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_11.$P = null; }else { $yield = $no_proc, block = nil; }
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "keep_if")};
+    if ($block_given) {} else {return $send(FILE, 211, this, null, "$enum_for", "keep_if")};
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2752,7 +2651,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$last = function($yield, count) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (count === undefined) { count = undefined; }
+  def.$last = function(count) {
 
     
       var length = this.length;
@@ -2771,15 +2670,15 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.slice(length - count, length);
     };
 
-  $proto.m$length = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$length = function() {
 
     return this.length;};
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "map", "collect");
+  $opal.alias(this, "map", "collect");
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "map!", "collect!");
+  $opal.alias(this, "map!", "collect!");
 
-  $proto.m$pop = function($yield, count) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (count === undefined) { count = undefined; }
+  def.$pop = function(count) {
 
     
       var length = this.length;
@@ -2795,7 +2694,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return count > length ? this.splice(0) : this.splice(length - count, length);
     };
 
-  $proto.m$push = function($yield, objects) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }objects = $slice.call(arguments, 1);
+  def.$push = function(objects) {objects = $slice.call(arguments, 0);
     
       for (var i = 0, length = objects.length; i < length; i++) {
         this.push(objects[i]);
@@ -2805,14 +2704,14 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     return this;
   };
 
-  $proto.m$rassoc = function($yield, object) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$rassoc = function(object) {var _a; 
 
     
       for (var i = 0, length = this.length, item; i < length; i++) {
         item = this[i];
 
         if (item.length && item[1] !== undefined) {
-          if (((_a=(item[1])).m$eq$ || $opal.mm('m$eq$')).call(_a, null, object)) {
+          if ($send(FILE, 240, (item[1]), null, "$eq$", object)) {
             return item;
           }
         }
@@ -2821,14 +2720,14 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return nil;
     };
 
-  $proto.m$reject = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$reject = $TMP_12 = function() {var _a; var $yield = $TMP_12.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_12.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "reject")};
+    if ($block_given) {} else {return $send(FILE, 244, this, null, "$enum_for", "reject")};
       var result = [];
 
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2840,14 +2739,14 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$reject$b = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$reject$b = $TMP_13 = function() {var _a; var $yield = $TMP_13.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_13.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "reject!")};
+    if ($block_given) {} else {return $send(FILE, 250, this, null, "$enum_for", "reject!")};
       var original = this.length;
 
       for (var i = 0, length = this.length, value; i < length; i++) {
-        if ((value = $yield.call($context, null, this[i])) === $breaker) {
+        if ((value = $yield.call($context, this[i])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2863,34 +2762,41 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$replace = function($yield, other) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$replace = function(other) {
 
-    ((_a=this).m$clear || $opal.mm('m$clear')).call(_a);
-    return ((_a=this).m$concat || $opal.mm('m$concat')).call(_a, null, other);};
+    
+      this.splice(0);
+      this.push.apply(this, other);
+      return this;
+    };
 
-  $proto.m$reverse = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$reverse = function() {
 
     return this.reverse();};
 
-  $proto.m$reverse$b = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$reverse$b = function() {var _a; 
 
-    return ((_a=this).m$replace || $opal.mm('m$replace')).call(_a, null, ((_b=this).m$reverse || $opal.mm('m$reverse')).call(_b));};
+    
+      this.splice(0);
+      this.push.apply(this, $send(FILE, 264, this, null, "$reverse"));
+      return this;
+    };
 
-  $proto.m$reverse_each = function($yield) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$reverse_each = $TMP_14 = function() {var _a, _b, _c, _d; var $yield = $TMP_14.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_14.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "reverse_each")};((_b=((_c=this).m$reverse || $opal.mm('m$reverse')).call(_c)).m$each || $opal.mm('m$each')).call(_b, 
+    if ($block_given) {} else {return $send(FILE, 268, this, null, "$enum_for", "reverse_each")};$send(FILE, 270, $send(FILE, 270, this, null, "$reverse"), 
 
-    (_b = block, (typeof(_b) === 'function' || _b == nil ? _b : ((_c=_b).m$to_proc || $opal.mm('m$to_proc')).call(_c))));return this;
+    (_c = block, (typeof(_c) === 'function' || _c == nil ? _c : $send(FILE, 272, _c, null, "$to_proc"))), "$each");return this;
   };
 
-  $proto.m$rindex = function($yield, object) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (object === undefined) { object = undefined; }
-    if ((_a = (_b = $block_given ? ((_c=object).m$eq$ || $opal.mm('m$eq$')).call(_c, 
+  def.$rindex = $TMP_15 = function(object) {var _a, _b, _c; var $yield = $TMP_15.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_15.$P = null; }else { $yield = $no_proc, block = nil; }
+    if ((_a = (_b = $block_given ? $send(
 
-    null, undefined) : _b)) !== false && _a !== nil) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "rindex")};
+    FILE, 276, object, null, "$eq$", undefined) : _b)) !== false && _a !== nil) {} else {return $send(FILE, 276, this, null, "$enum_for", "rindex")};
       if (block !== nil) {
         for (var i = this.length - 1, value; i >= 0; i--) {
-          if ((value = $yield.call($context, null, this[i])) === $breaker) {
+          if ((value = $yield.call($context, this[i])) === $breaker) {
             return $breaker.$v;
           }
 
@@ -2901,7 +2807,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       }
       else {
         for (var i = this.length - 1; i >= 0; i--) {
-          if (((_a=(this[i])).m$eq$ || $opal.mm('m$eq$')).call(_a, null, object)) {
+          if ($send(FILE, 278, (this[i]), null, "$eq$", object)) {
             return i;
           }
         }
@@ -2911,16 +2817,16 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$select = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$select = $TMP_16 = function() {var _a; var $yield = $TMP_16.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_16.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "select")};
+    if ($block_given) {} else {return $send(FILE, 282, this, null, "$enum_for", "select")};
       var result = [];
 
       for (var i = 0, length = this.length, item, value; i < length; i++) {
         item = this[i];
 
-        if ((value = $yield.call($context, null, item)) === $breaker) {
+        if ((value = $yield.call($context, item)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2933,15 +2839,15 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$select$b = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$select$b = $TMP_17 = function() {var _a; var $yield = $TMP_17.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_17.$P = null; }else { $yield = $no_proc, block = nil; }
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "select!")};
+    if ($block_given) {} else {return $send(FILE, 288, this, null, "$enum_for", "select!")};
       var original = this.length;
 
       for (var i = 0, length = original, item, value; i < length; i++) {
         item = this[i];
 
-        if ((value = $yield.call($context, null, item)) === $breaker) {
+        if ((value = $yield.call($context, item)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -2957,15 +2863,15 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$shift = function($yield, count) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (count === undefined) { count = undefined; }
+  def.$shift = function(count) {
 
     return count === undefined ? this.shift() : this.splice(0, count);};
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "size", "length");
+  $opal.alias(this, "size", "length");
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "slice", "[]");
+  $opal.alias(this, "slice", "[]");
 
-  $proto.m$slice$b = function($yield, index, length) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }if (length === undefined) { length = undefined; }
+  def.$slice$b = function(index, length) {
 
     
       if (index < 0) {
@@ -2983,20 +2889,20 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.splice(index, 1)[0];
     };
 
-  $proto.m$take = function($yield, count) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$take = function(count) {
 
     return this.slice(0, count);};
 
-  $proto.m$take_while = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$take_while = $TMP_18 = function() {var _a; var $yield = $TMP_18.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_18.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "take_while")};
+    if ($block_given) {} else {return $send(FILE, 309, this, null, "$enum_for", "take_while")};
       var result = [];
 
       for (var i = 0, length = this.length, item, value; i < length; i++) {
         item = this[i];
 
-        if ((value = $yield.call($context, null, item)) === $breaker) {
+        if ((value = $yield.call($context, item)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -3011,19 +2917,15 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
     
   };
 
-  $proto.m$to_a = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_a = function() {
 
     return this;};
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "to_ary", "to_a");
+  $opal.alias(this, "to_ary", "to_a");
 
-  $proto.m$to_native = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  $opal.alias(this, "to_s", "inspect");
 
-    return ((_b=this).m$map || $opal.mm('m$map')).call(_b, (_a=function(_$, obj) {var _a, _b; if (obj === undefined) {obj = nil; }if ((_a = (!!(_b = obj, _b != null && _b.$klass))) !== false && _a !== nil) {return ((_a=obj).m$to_native || $opal.mm('m$to_native')).call(_a)} else {return obj}},_a.$S=this,_a));};
-
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "to_s", "inspect");
-
-  $proto.m$uniq = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$uniq = function() {var _a, _b; 
 
     
       var result = [],
@@ -3031,7 +2933,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
 
       for (var i = 0, length = this.length, item, hash; i < length; i++) {
         item = this[i];
-        hash = ((_a=((_b=this).m$item || $opal.mm('m$item')).call(_b)).m$hash || $opal.mm('m$hash')).call(_a);
+        hash = $send(FILE, 323, $send(FILE, 323, this, null, "$item"), null, "$hash");
 
         if (!seen[hash]) {
           seen[hash] = true;
@@ -3043,7 +2945,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return result;
     };
 
-  $proto.m$uniq$b = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$uniq$b = function() {var _a, _b; 
 
     
       var original = this.length,
@@ -3051,7 +2953,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
 
       for (var i = 0, length = original, item, hash; i < length; i++) {
         item = this[i];
-        hash = ((_a=((_b=this).m$item || $opal.mm('m$item')).call(_b)).m$hash || $opal.mm('m$hash')).call(_a);
+        hash = $send(FILE, 327, $send(FILE, 327, this, null, "$item"), null, "$hash");
 
         if (!seen[hash]) {
           seen[hash] = true;
@@ -3067,7 +2969,7 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
       return this.length === original ? nil : this;
     };
 
-  return $proto.m$unshift = function($yield, objects) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }objects = $slice.call(arguments, 1);
+  return def.$unshift = function(objects) {objects = $slice.call(arguments, 0);
 
     
       for (var i = 0, length = objects.length; i < length; i++) {
@@ -3076,20 +2978,21 @@ $klass(this, nil, "Array", function() {var $const = this.$const, $proto = this.$
 
       return this;
     };
-}, 0);
+}, 0);var $TMP_1, $TMP_2, $TMP_3, $TMP_4, $TMP_5, $TMP_6, $TMP_7, $TMP_8, $TMP_9, $TMP_10, $TMP_11, $TMP_12, $TMP_13, $TMP_14, $TMP_15, $TMP_16, $TMP_17, $TMP_18;
+}).call(opal.top, opal);
+opal.FILE = '/core/hash.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Hash", function() {var $const = this.$const, def = this.$proto; 
 
-$klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$proto; 
 
-
-  ((_a=this).m$include || $opal.mm('m$include')).call(_a, null, $opal.const_get($const, "Enumerable"));$defs(this, 'm$aref$', function($yield, objs) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }objs = $slice.call(arguments, 1);
+  $send(FILE, 4, this, null, "$include", $opal.const_get($const, "Enumerable"));$opal.defs(this, '$aref$', function(objs) {objs = $slice.call(arguments, 0);
     return $opal.hash.apply(null, objs);
   });
 
-  $defs(this, 'm$allocate', function(
-    $yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }return new $opal.hash();
+  $opal.defs(this, '$allocate', function(
+    ) {return new $opal.hash();
   });
 
-  $defs(this, 'm$new', function($yield, defaults) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (defaults === undefined) { defaults = undefined; }
+  $opal.defs(this, '$new', $TMP_1 = function(defaults) {var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, block = nil; }
     
       var hash = new $opal.hash();
 
@@ -3104,7 +3007,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
     
   });
 
-  $proto.m$eq$ = function($yield, other) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$eq$ = function(other) {var _a, _b; 
 
     
       if (this === other) {
@@ -3126,7 +3029,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
         var obj  = map[assoc][1],
             obj2 = map2[assoc][1];
 
-        if (((_a = ((_b=(obj)).m$eq$ || $opal.mm('m$eq$')).call(_b, null, obj2)) === false || _a === nil)) {
+        if (((_a = $send(FILE, 17, (obj), null, "$eq$", obj2)) === false || _a === nil)) {
           return false;
         }
       }
@@ -3134,10 +3037,10 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return true;
     };
 
-  $proto.m$aref$ = function($yield, key) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$aref$ = function(key) {var _a; 
 
     
-      var hash = ((_a=key).m$hash || $opal.mm('m$hash')).call(_a),
+      var hash = $send(FILE, 21, key, null, "$hash"),
           bucket;
 
       if (bucket = this.map[hash]) {
@@ -3147,22 +3050,22 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return this.none;
     };
 
-  $proto.m$aset$ = function($yield, key, value) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 2) { $opal.arg_error($arity, 2); }
+  def.$aset$ = function(key, value) {var _a; 
 
     
-      var hash       = ((_a=key).m$hash || $opal.mm('m$hash')).call(_a);
+      var hash       = $send(FILE, 25, key, null, "$hash");
       this.map[hash] = [key, value];
 
       return value;
     };
 
-  $proto.m$assoc = function($yield, object) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$assoc = function(object) {var _a; 
 
     
       for (var assoc in this.map) {
         var bucket = this.map[assoc];
 
-        if (((_a=(bucket[0])).m$eq$ || $opal.mm('m$eq$')).call(_a, null, object)) {
+        if ($send(FILE, 29, (bucket[0]), null, "$eq$", object)) {
           return [bucket[0], bucket[1]];
         }
       }
@@ -3170,7 +3073,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return nil;
     };
 
-  $proto.m$clear = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$clear = function() {
 
     
       this.map = {};
@@ -3178,7 +3081,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return this;
     };
 
-  $proto.m$clone = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$clone = function() {
 
     
       var result = new $opal.hash(),
@@ -3192,27 +3095,27 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$default = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$default = function() {
 
     return this.none;};
 
-  $proto.m$default$e = function($yield, object) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$default$e = function(object) {
 
     return this.none = object;};
 
-  $proto.m$default_proc = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$default_proc = function() {
 
     return this.proc;};
 
-  $proto.m$default_proc$e = function($yield, proc) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$default_proc$e = function(proc) {
 
     return this.proc = proc;};
 
-  $proto.m$delete = function($yield, key) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$delete = function(key) {var _a; 
 
     
       var map  = this.map,
-          hash = ((_a=key).m$hash || $opal.mm('m$hash')).call(_a),
+          hash = $send(FILE, 57, key, null, "$hash"),
           result;
 
       if (result = map[hash]) {
@@ -3224,17 +3127,17 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$delete_if = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$delete_if = $TMP_2 = function() {var _a; var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_2.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "delete_if")};
+    if ($block_given) {} else {return $send(FILE, 61, this, null, "$enum_for", "delete_if")};
       var map = this.map;
 
       for (var assoc in map) {
         var bucket = map[assoc],
             value;
 
-        if ((value = $yield.call($context, null, bucket[0], bucket[1])) === $breaker) {
+        if ((value = $yield.call($context, bucket[0], bucket[1])) === $breaker) {
           return $breaker.$v;
         }
 
@@ -3247,16 +3150,16 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
     
   };
 
-  $proto.m$each = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each = $TMP_3 = function() {var _a; var $yield = $TMP_3.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_3.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "each")};
+    if ($block_given) {} else {return $send(FILE, 67, this, null, "$enum_for", "each")};
       var map = this.map;
 
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        if ($yield.call($context, null, bucket[0], bucket[1]) === $breaker) {
+        if ($yield.call($context, bucket[0], bucket[1]) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3265,16 +3168,16 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
     
   };
 
-  $proto.m$each_key = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each_key = $TMP_4 = function() {var _a; var $yield = $TMP_4.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_4.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "each_key")};
+    if ($block_given) {} else {return $send(FILE, 73, this, null, "$enum_for", "each_key")};
       var map = this.map;
 
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        if ($yield.call($context, null, bucket[0]) === $breaker) {
+        if ($yield.call($context, bucket[0]) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3283,18 +3186,18 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
     
   };
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "each_pair", "each");
+  $opal.alias(this, "each_pair", "each");
 
-  $proto.m$each_value = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$each_value = $TMP_5 = function() {var _a; var $yield = $TMP_5.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_5.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "each_value")};
+    if ($block_given) {} else {return $send(FILE, 81, this, null, "$enum_for", "each_value")};
       var map = this.map;
 
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        if ($yield.call($context, null, bucket[1]) === $breaker) {
+        if ($yield.call($context, bucket[1]) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3303,7 +3206,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
     
   };
 
-  $proto.m$empty$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$empty$p = function() {
 
     
       for (var assoc in this.map) {
@@ -3313,17 +3216,17 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return true;
     };
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "eql?", "==");
+  $opal.alias(this, "eql?", "==");
 
-  $proto.m$fetch = function($yield, key, defaults) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (defaults === undefined) { defaults = undefined; }
+  def.$fetch = $TMP_6 = function(key, defaults) {var _a; var $yield = $TMP_6.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_6.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
-      var bucket = this.map[((_a=key).m$hash || $opal.mm('m$hash')).call(_a)];
+      var bucket = this.map[$send(FILE, 93, key, null, "$hash")];
 
       if (block !== nil) {
         var value;
 
-        if ((value = $yield.call($context, null, key)) === $breaker) {
+        if ((value = $yield.call($context, key)) === $breaker) {
           return $breaker.$v;
         }
 
@@ -3337,7 +3240,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       raise(RubyKeyError, 'key not found');
     };
 
-  $proto.m$flatten = function($yield, level) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (level === undefined) { level = undefined; }
+  def.$flatten = function(level) {var _a, _b, _c; 
 
     
       var map    = this.map,
@@ -3355,7 +3258,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
             result.push(value);
           }
           else {
-            result = result.concat(((_a=((_b=this).m$value || $opal.mm('m$value')).call(_b)).m$flatten || $opal.mm('m$flatten')).call(_a, null, (_b = level, _c = 1, typeof(_b) === 'number' ? _b - _c : _b.m$minus$(null, _c))));
+            result = result.concat($send(FILE, 97, (value), null, "$flatten", (_b = level, _c = 1, typeof(_b) === 'number' ? _b - _c : _b.$minus$(_c))));
           }
         }
         else {
@@ -3366,15 +3269,15 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$has_key$p = function($yield, key) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$has_key$p = function(key) {var _a; 
 
-    return !!this.map[((_a=key).m$hash || $opal.mm('m$hash')).call(_a)];};
+    return !!this.map[$send(FILE, 101, key, null, "$hash")];};
 
-  $proto.m$has_value$p = function($yield, value) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$has_value$p = function(value) {var _a; 
 
     
       for (var assoc in this.map) {
-        if (((_a=(this.map[assoc][1])).m$eq$ || $opal.mm('m$eq$')).call(_a, null, value)) {
+        if ($send(FILE, 105, (this.map[assoc][1]), null, "$eq$", value)) {
           return true;
         }
       }
@@ -3382,11 +3285,11 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return false;
     };
 
-  $proto.m$hash = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$hash = function() {
 
     return this.$id;};
 
-  $proto.m$inspect = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$inspect = function() {var _a; 
 
     
       var inspect = [],
@@ -3395,12 +3298,12 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        inspect.push(((_a=(bucket[0])).m$inspect || $opal.mm('m$inspect')).call(_a) + '=>' + ((_a=(bucket[1])).m$inspect || $opal.mm('m$inspect')).call(_a));
+        inspect.push($send(FILE, 113, (bucket[0]), null, "$inspect") + '=>' + $send(FILE, 113, (bucket[1]), null, "$inspect"));
       }
       return '{' + inspect.join(', ') + '}';
     };
 
-  $proto.m$invert = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$invert = function() {var _a; 
 
     
       var result = $opal.hash(),
@@ -3410,19 +3313,19 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        map2[((_a=(bucket[1])).m$hash || $opal.mm('m$hash')).call(_a)] = [bucket[0], bucket[1]];
+        map2[$send(FILE, 117, (bucket[1]), null, "$hash")] = [bucket[0], bucket[1]];
       }
 
       return result;
     };
 
-  $proto.m$key = function($yield, object) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$key = function(object) {var _a; 
 
     
       for (var assoc in this.map) {
         var bucket = this.map[assoc];
 
-        if (((_a=object).m$eq$ || $opal.mm('m$eq$')).call(_a, null, bucket[1])) {
+        if ($send(FILE, 121, object, null, "$eq$", bucket[1])) {
           return bucket[0];
         }
       }
@@ -3430,9 +3333,9 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return nil;
     };
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "key?", "has_key?");
+  $opal.alias(this, "key?", "has_key?");
 
-  $proto.m$keys = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$keys = function() {
 
     
       var result = [];
@@ -3444,7 +3347,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$length = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$length = function() {
 
     
       var result = 0;
@@ -3456,9 +3359,9 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "member?", "has_key?");
+  $opal.alias(this, "member?", "has_key?");
 
-  $proto.m$merge = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$merge = function(other) {
 
     
       var result = $opal.hash(),
@@ -3482,7 +3385,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$merge$b = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$merge$b = function(other) {
 
     
       var map  = this.map,
@@ -3497,7 +3400,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return this;
     };
 
-  $proto.m$rassoc = function($yield, object) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$rassoc = function(object) {var _a; 
 
     
       var map = this.map;
@@ -3505,7 +3408,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       for (var assoc in map) {
         var bucket = map[assoc];
 
-        if (((_a=(bucket[1])).m$eq$ || $opal.mm('m$eq$')).call(_a, null, object)) {
+        if ($send(FILE, 145, (bucket[1]), null, "$eq$", object)) {
           return [bucket[0], bucket[1]];
         }
       }
@@ -3513,7 +3416,7 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return nil;
     };
 
-  $proto.m$replace = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$replace = function(other) {
 
     
       var map = this.map = {};
@@ -3527,9 +3430,9 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return this;
     };
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "size", "length");
+  $opal.alias(this, "size", "length");
 
-  $proto.m$to_a = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_a = function() {
 
     
       var map    = this.map,
@@ -3544,31 +3447,15 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
       return result;
     };
 
-  $proto.m$to_hash = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_hash = function() {
 
     return this;};
 
-  $proto.m$to_native = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  $opal.alias(this, "to_s", "inspect");
 
-    
-      var map    = this.map,
-          result = {};
+  $opal.alias(this, "update", "merge!");
 
-      for (var assoc in map) {
-        var key   = map[assoc][0],
-            value = map[assoc][1];
-
-        result[key] = (function() { if ((_a = (!!(_b = value, _b != null && _b.$klass))) !== false && _a !== nil) {return ((_a=(value)).m$to_native || $opal.mm('m$to_native')).call(_a)} else {return value;}; return nil; }).call(this);
-      }
-
-      return result;
-    };
-
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "to_s", "inspect");
-
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "update", "merge!");
-
-  return $proto.m$values = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  return def.$values = function() {
 
     
       var map    = this.map,
@@ -3580,52 +3467,53 @@ $klass(this, nil, "Hash", function() {var $const = this.$const, $proto = this.$p
 
       return result;
     };
-}, 0);
-
-$klass(this, nil, "String", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$new', function($yield, str) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (str === undefined) { str = ""; }
-    return ((_a=str).m$to_s || $opal.mm('m$to_s')).call(_a)
+}, 0);var $TMP_1, $TMP_2, $TMP_3, $TMP_4, $TMP_5, $TMP_6;
+}).call(opal.top, opal);
+opal.FILE = '/core/string.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;$klass(this, nil, "String", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$new', function(str) {var _a; if (str === undefined) { str = ""; }
+    return $send(FILE, 3, str, null, "$to_s")
   });
 
-  $proto.m$lt$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$lt$ = function(other) {
 
     return this < other;};
 
-  $proto.m$le$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$le$ = function(other) {
 
     return this <= other;};
 
-  $proto.m$gt$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$gt$ = function(other) {
 
     return this > other;};
 
-  $proto.m$ge$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$ge$ = function(other) {
 
     return this >= other;};
 
-  $proto.m$plus$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$plus$ = function(other) {
 
     return this + other;};
 
-  $proto.m$aref$ = function($yield, index, length) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 2) { $opal.arg_error($arity, 2); }
+  def.$aref$ = function(index, length) {
 
     return this.substr(index, length);};
 
-  $proto.m$eq$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$eq$ = function(other) {
 
     return this.valueOf() === other.valueOf();};
 
-  $proto.m$match$ = function($yield, other) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$match$ = function(other) {var _a; 
 
     
       if (typeof other === 'string') {
         raise(RubyTypeError, 'string given');
       }
 
-      return ((_a=other).m$match$ || $opal.mm('m$match$')).call(_a, null, this);
+      return $send(FILE, 35, other, null, "$match$", this);
     };
 
-  $proto.m$cmp$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$cmp$ = function(other) {
 
     
       if (typeof other !== 'string') {
@@ -3635,11 +3523,11 @@ $klass(this, nil, "String", function() {var $const = this.$const, $proto = this.
       return this > other ? 1 : (this < other ? -1 : 0);
     };
 
-  $proto.m$capitalize = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$capitalize = function() {
 
     return this.charAt(0).toUpperCase() + this.substr(1).toLowerCase();};
 
-  $proto.m$casecmp = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$casecmp = function(other) {
 
     
       if (typeof other !== 'string') {
@@ -3652,81 +3540,101 @@ $klass(this, nil, "String", function() {var $const = this.$const, $proto = this.
       return a > b ? 1 : (a < b ? -1 : 0);
     };
 
-  $proto.m$downcase = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$downcase = function() {
 
     return this.toLowerCase();};
 
-  $proto.m$end_with$p = function($yield, suffix) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$end_with$p = function(suffix) {
 
     return this.lastIndexOf(suffix) === this.length - suffix.length;};
 
-  $proto.m$empty$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$empty$p = function() {
 
     return this.length === 0;};
 
-  $proto.m$gsub = function($yield, pattern, replace) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (replace === undefined) { replace = undefined; }
+  def.$gsub = $TMP_1 = function(pattern, replace) {var _a, _b, _c, _d; var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       var re = pattern.toString();
           re = re.substr(1, re.lastIndexOf('/') - 1);
           re = new RegExp(re, 'g');
 
-      return ((_b=this).m$sub || $opal.mm('m$sub')).call(_b, (_b = block, (typeof(_b) === 'function' || _b == nil ? _b : ((_c=_b).m$to_proc || $opal.mm('m$to_proc')).call(_c))), ((_c=this).m$re || $opal.mm('m$re')).call(_c), replace);
+      return $send(FILE, 63, this, (_c = block, (typeof(_c) === 'function' || _c == nil ? _c : $send(FILE, 64, _c, null, "$to_proc"))), "$sub", $send(FILE, 63, this, null, "$re"), replace);
     };
 
-  $proto.m$hash = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$hash = function() {
 
     return this.toString();};
 
-  $proto.m$include$p = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$include$p = function(other) {
 
     return this.indexOf(other) !== -1;};
 
-  $proto.m$index = function($yield, substr) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$index = function(substr) {
 
     
       var result = this.indexOf(substr);
       return result === -1 ? nil : result
     };
 
-  $proto.m$inspect = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$inspect = function() {
 
-    return string_inspect(this);};
+    
+      var escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
+          meta      = {
+            '\b': '\\b',
+            '\t': '\\t',
+            '\n': '\\n',
+            '\f': '\\f',
+            '\r': '\\r',
+            '"' : '\\"',
+            '\\': '\\\\'
+          };
 
-  $proto.m$intern = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+      escapable.lastIndex = 0;
+
+      return escapable.test(this) ? '"' + this.replace(escapable, function(a) {
+        var c = meta[a];
+
+        return typeof c === 'string' ? c :
+          '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
+      }) + '"' : '"' + this + '"';
+  };
+
+  def.$intern = function() {
 
     return this;};
 
-  $proto.m$length = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$length = function() {
 
     return this.length;};
 
-  $proto.m$lstrip = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$lstrip = function() {
 
     return this.replace(/^s*/, '');};
 
-  $proto.m$next = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$next = function() {
 
     return String.fromCharCode(this.charCodeAt(0));};
 
-  $proto.m$reverse = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$reverse = function() {
 
     return this.split('').reverse().join('');};
 
-  $proto.m$split = function($yield, split, limit) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }if (limit === undefined) { limit = undefined; }
+  def.$split = function(split, limit) {
 
     return this.split(split, limit);};
 
-  $proto.m$start_with$p = function($yield, prefix) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$start_with$p = function(prefix) {
 
     return this.indexOf(prefix) === 0;};
 
-  $proto.m$sub = function($yield, pattern, replace) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;if (replace === undefined) { replace = undefined; }
+  def.$sub = $TMP_2 = function(pattern, replace) {var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_2.$P = null; }else { $yield = $no_proc, block = nil; }
 
     
       if (block !== nil) {
         return this.replace(pattern, function(str) {
-          return $yield.call($context, null, str);
+          return $yield.call($context, str);
         });
       }
       else {
@@ -3734,141 +3642,139 @@ $klass(this, nil, "String", function() {var $const = this.$const, $proto = this.
       }
     };
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "succ", "next");
+  $opal.alias(this, "succ", "next");
 
-  $proto.m$to_f = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_f = function() {
 
     return parseFloat(this);};
 
-  $proto.m$to_i = function($yield, base) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (base === undefined) { base = 10; }
+  def.$to_i = function(base) {if (base === undefined) { base = 10; }
 
     return parseInt(this, base);};
 
-  $proto.m$to_native = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return this.valueOf();};
-
-  $proto.m$to_proc = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_proc = function() {
 
     
       var self = this;
-      return function(iter, arg) { return arg['m$' + self](); };
+      return function(iter, arg) { return arg['$' + self](); };
     };
 
-  $proto.m$to_s = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_s = function() {
 
     return this.toString();};
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "to_sym", "intern");
+  $opal.alias(this, "to_sym", "intern");
 
-  return $proto.m$upcase = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  return def.$upcase = function() {
 
     return this.toUpperCase();};
 }, 0);
 
-$const.Symbol = 
-
-$opal.const_get($const, "String");$klass(this, nil, "Numeric", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$plus$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+return $const.Symbol = 
+$opal.const_get($const, "String");;var $TMP_1, $TMP_2;
+}).call(opal.top, opal);
+opal.FILE = '/core/numeric.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;$klass(this, nil, "Numeric", function() {var $const = this.$const, def = this.$proto; 
+  def.$plus$ = function(other) {
 
     return this + other;};
 
-  $proto.m$minus$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$minus$ = function(other) {
 
     return this - other;};
 
-  $proto.m$mul$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$mul$ = function(other) {
 
     return this * other;};
 
-  $proto.m$div$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$div$ = function(other) {
 
     return this / other;};
 
-  $proto.m$mod$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$mod$ = function(other) {
 
     return this % other;};
 
-  $proto.m$and$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$and$ = function(other) {
 
     return this & other;};
 
-  $proto.m$or$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$or$ = function(other) {
 
     return this | other;};
 
-  $proto.m$xor$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$xor$ = function(other) {
 
     return this ^ other;};
 
-  $proto.m$lt$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$lt$ = function(other) {
 
     return this < other;};
 
-  $proto.m$le$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$le$ = function(other) {
 
     return this <= other;};
 
-  $proto.m$gt$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$gt$ = function(other) {
 
     return this > other;};
 
-  $proto.m$ge$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$ge$ = function(other) {
 
     return this >= other;};
 
-  $proto.m$lshft$ = function($yield, count) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$lshft$ = function(count) {
 
     return this << count;};
 
-  $proto.m$rshft$ = function($yield, count) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$rshft$ = function(count) {
 
     return this >> count;};
 
-  $proto.m$uplus$ = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$uplus$ = function() {
 
     return +this;};
 
-  $proto.m$uminus$ = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$uminus$ = function() {
 
     return -this;};
 
-  $proto.m$tild$ = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$tild$ = function() {
 
     return ~this;};
 
-  $proto.m$pow$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$pow$ = function(other) {
 
     return Math.pow(this, other);};
 
-  $proto.m$eq$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$eq$ = function(other) {
 
     return this.valueOf() === other.valueOf();};
 
-  $proto.m$cmp$ = function($yield, other) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$cmp$ = function(other) {
 
     
-      if (((_a = (typeof other === 'number')) === false || _a === nil)) {
+      if (typeof(other) !== 'number') {
         return nil;
       }
 
       return this < other ? -1 : (this > other ? 1 : 0);
     };
 
-  $proto.m$abs = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$abs = function() {
 
     return Math.abs(this);};
 
-  $proto.m$ceil = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$ceil = function() {
 
     return Math.ceil(this);};
 
-  $proto.m$downto = function($yield, finish) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$downto = $TMP_1 = function(finish) {var _a; var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "downto", finish)};
+    if ($block_given) {} else {return $send(FILE, 91, this, null, "$enum_for", "downto", finish)};
       for (var i = this; i >= finish; i--) {
-        if ($yield.call($context, null, i) === $breaker) {
+        if ($yield.call($context, i) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3877,50 +3783,50 @@ $opal.const_get($const, "String");$klass(this, nil, "Numeric", function() {var $
     
   };
 
-  $proto.m$even$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$even$p = function() {
 
     return this % 2 === 0;};
 
-  $proto.m$floor = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$floor = function() {
 
     return Math.floor(this);};
 
-  $proto.m$hash = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$hash = function() {
 
     return this.toString();};
 
-  $proto.m$integer$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$integer$p = function() {
 
     return this % 1 === 0;};
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "magnitude", "abs");
+  $opal.alias(this, "magnitude", "abs");
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "modulo", "%");
+  $opal.alias(this, "modulo", "%");
 
-  $proto.m$next = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$next = function() {
 
     return this + 1;};
 
-  $proto.m$nonzero$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$nonzero$p = function() {
 
     return this.valueOf() === 0 ? nil : this;};
 
-  $proto.m$odd$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$odd$p = function() {
 
     return this % 2 !== 0;};
 
-  $proto.m$pred = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$pred = function() {
 
     return this - 1;};
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "succ", "next");
+  $opal.alias(this, "succ", "next");
 
-  $proto.m$times = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$times = $TMP_2 = function() {var _a; var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_2.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ((_a = block) !== false && _a !== nil) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "times")};
+    if ((_a = block) !== false && _a !== nil) {} else {return $send(FILE, 135, this, null, "$enum_for", "times")};
       for (var i = 0; i <= this; i++) {
-        if ($yield.call($context, null, i) === $breaker) {
+        if ($yield.call($context, i) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3929,28 +3835,24 @@ $opal.const_get($const, "String");$klass(this, nil, "Numeric", function() {var $
     
   };
 
-  $proto.m$to_f = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_f = function() {
 
     return parseFloat(this);};
 
-  $proto.m$to_i = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_i = function() {
 
     return parseInt(this);};
 
-  $proto.m$to_native = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return this.valueOf();};
-
-  $proto.m$to_s = function($yield, base) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (base === undefined) { base = 10; }
+  def.$to_s = function(base) {if (base === undefined) { base = 10; }
 
     return this.toString(base);};
 
-  $proto.m$upto = function($yield, finish) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+  def.$upto = $TMP_3 = function(finish) {var _a; var $yield = $TMP_3.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_3.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "upto", finish)};
+    if ($block_given) {} else {return $send(FILE, 153, this, null, "$enum_for", "upto", finish)};
       for (var i = 0; i <= finish; i++) {
-        if ($yield.call($context, null, i) === $breaker) {
+        if ($yield.call($context, i) === $breaker) {
           return $breaker.$v;
         }
       }
@@ -3959,15 +3861,15 @@ $opal.const_get($const, "String");$klass(this, nil, "Numeric", function() {var $
     
   };
 
-  return $proto.m$zero$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  return def.$zero$p = function() {
 
     return this.valueOf() === 0;};
 }, 0);
 
-$klass(this, nil, "Integer", function() {var $const = this.$const, $proto = this.$proto; 
-  return $defs(this, 'm$eqq$', function($yield, obj) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+$klass(this, nil, "Integer", function() {var $const = this.$const, def = this.$proto; 
+  return $opal.defs(this, '$eqq$', function(obj) {
     
-      if (((_a = (typeof obj === 'number')) === false || _a === nil)) {
+      if (typeof(obj) !== 'number') {
         return false;
       }
 
@@ -3976,122 +3878,94 @@ $klass(this, nil, "Integer", function() {var $const = this.$const, $proto = this
   })
 }, 0);
 
-$klass(this, nil, "Float", function() {var $const = this.$const, $proto = this.$proto; 
-  return $defs(this, 'm$eqq$', function($yield, obj) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+return $klass(this, nil, "Float", function() {var $const = this.$const, def = this.$proto; 
+  return $opal.defs(this, '$eqq$', function(obj) {
     
-      if (((_a = (typeof obj === 'number')) === false || _a === nil)) {
+      if (typeof(obj) !== 'number') {
         return false;
       }
 
       return obj % 1 !== 0;
     
   })
-}, 0);
-
-$klass(this, nil, "Rational", function() {var $const = this.$const, $proto = this.$proto; 
-  ((_a=this).m$attr_reader || $opal.mm('m$attr_reader')).call(_a, null, "numerator", "denominator");
-
-  $proto.m$initialize = function($yield, numerator, denominator) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }if (denominator === undefined) { denominator = 1; }
-    this.numerator = 
-    numerator;return this.denominator = 
-    denominator;};
-
-  $proto.m$to_s = function($yield) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ("" + ((_a=((_b=this).m$numerator || $opal.mm('m$numerator')).call(_b)).m$to_s || $opal.mm('m$to_s')).call(_a) + ((_a=(function() { if ((_b = ((_c=this).m$denominator || $opal.mm('m$denominator')).call(_c)) !== false && _b !== nil) {return ("/" + ((_b=((_c=this).m$denominator || $opal.mm('m$denominator')).call(_c)).m$to_s || $opal.mm('m$to_s')).call(_b))} else {return nil}; return nil; }).call(this)).m$to_s || $opal.mm('m$to_s')).call(_a));};
-
-  return $proto.m$inspect = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ("(" + ((_a=((_b=this).m$to_s || $opal.mm('m$to_s')).call(_b)).m$to_s || $opal.mm('m$to_s')).call(_a) + ")");};
-}, 0);
-
-$klass(this, nil, "Complex", function() {var $const = this.$const, $proto = this.$proto; 
-  return nil}, 0);
-
-$klass(this, nil, "Proc", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$new', function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); var block = $yield || ($yield = $no_proc, nil);var $context = $yield.$S;
+}, 0);;var $TMP_1, $TMP_2, $TMP_3;
+}).call(opal.top, opal);
+opal.FILE = '/core/proc.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Proc", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$new', $TMP_1 = function() {var _a; var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true, block = $yield; $TMP_1.$P = null; }else { $yield = $no_proc, block = nil; }
 
 
-    if ($block_given) {} else {((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "ArgumentError"), "tried to create Proc object without a block")};
+    if ($block_given) {} else {$send(FILE, 3, this, null, "$raise", $opal.const_get($const, "ArgumentError"), "tried to create Proc object without a block")};
     return block;});
 
-  $proto.m$to_proc = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_proc = function() {
 
     return this;};
 
-  $proto.m$call = function($yield, args) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }args = $slice.call(arguments, 1);
+  def.$call = function(args) {args = $slice.call(arguments, 0);
 
-    return this.apply(this.$S, $slice.call(arguments));};
+    return this.apply(this.$S, args);};
 
-  $proto.m$to_native = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    
-      return function() {
-        var args = Array.slice.call(arguments);
-            args.unshift(null); // block
-
-        return this.apply(this.$S, args);
-      };
-    };
-
-  $proto.m$to_proc = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_proc = function() {
 
     return this;};
 
-  $proto.m$to_s = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_s = function() {
 
     return "#<Proc:0x0000000>";};
 
-  $proto.m$lambda$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$lambda$p = function() {
 
-    return this.$lambda ? true : false;};
+    return !!this.$lambda;};
 
-  return $proto.m$arity = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  return def.$arity = function() {
 
     return this.length - 1;};
-}, 0);
-
-$klass(this, nil, "Range", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$begin = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+}, 0);var $TMP_1;
+}).call(opal.top, opal);
+opal.FILE = '/core/range.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Range", function() {var $const = this.$const, def = this.$proto; 
+  def.$begin = function() {
 
     return this.begin;};
 
-  $proto.m$end = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$end = function() {
 
     return this.end;};
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "first", "begin");
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "min", "begin");
+  $opal.alias(this, "first", "begin");
+  $opal.alias(this, "min", "begin");
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "last", "end");
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "max", "end");
+  $opal.alias(this, "last", "end");
+  $opal.alias(this, "max", "end");
 
-  $proto.m$initialize = function($yield, min, max, exclude) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 2) { $opal.arg_error($arity, -3); }if (exclude === undefined) { exclude = false; }
-    this.begin = this.begin   = min;
-    this.end = this.end     = max;
-    return this.exclude = this.exclude = exclude;
-  };
+  def.$initialize = function(min, max, exclude) {if (exclude === undefined) { exclude = false; }
+    this.begin = 
+    min;this.end = 
+    max;return this.exclude = 
+    exclude;};
 
 
-  $proto.m$eqq$ = function($yield, obj) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$eqq$ = function(obj) {
 
     return obj >= this.begin && obj <= this.end;};
 
-  $proto.m$exclude_end$p = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$exclude_end$p = function() {
 
     return this.exclude;};
 
-  $proto.m$to_s = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_s = function() {
 
     return this.begin + (this.exclude ? '...' : '..') + this.end;};
 
-  return $proto.m$inspect = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  return def.$inspect = function() {
 
     return this.begin + (this.exclude ? '...' : '..') + this.end;};
-}, 0);
-
-$klass(this, nil, "Exception", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$initialize = function($yield, message) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (message === undefined) { message = ""; }
+}, 0)
+}).call(opal.top, opal);
+opal.FILE = '/core/error.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Exception", function() {var $const = this.$const, def = this.$proto; 
+  def.$initialize = function(message) {if (message === undefined) { message = ""; }
 
     
       if (Error.captureStackTrace) {
@@ -4101,42 +3975,58 @@ $klass(this, nil, "Exception", function() {var $const = this.$const, $proto = th
       this.message = message;
     };
 
-  $proto.m$backtrace = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$backtrace = function() {
 
-    return this._bt || (this._bt = exc_backtrace(this));};
+    
+      if (this._bt !== undefined) {
+        return this._bt;
+      }
 
-  $proto.m$inspect = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+      var backtrace = this.stack;
 
-    return ("#<" + ((_a=((_b=this).m$class || $opal.mm('m$class')).call(_b)).m$to_s || $opal.mm('m$to_s')).call(_a) + ": '" + ((_a=((_b=this).m$message || $opal.mm('m$message')).call(_b)).m$to_s || $opal.mm('m$to_s')).call(_a) + "'>");};
+      if (typeof(backtrace) === 'string') {
+        return this._bt = backtrace.split("\n");
+      }
+      else if (backtrace) {
+        this._bt = backtrace;
+      }
 
-  $proto.m$message = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+      return this._bt = ["No backtrace available"];
+    };
+
+  def.$inspect = function() {var _a, _b; 
+
+    return ("#<" + $send(FILE, 12, $send(FILE, 11, this, null, "$class"), null, "$to_s") + ": '" + $send(FILE, 12, $send(FILE, 11, this, null, "$message"), null, "$to_s") + "'>");};
+
+  def.$message = function() {
 
     return this.message;};
 
-  return ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "to_s", "message");
-}, 0);
-
-$klass(this, nil, "Regexp", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$escape', function($yield, string) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  return $opal.alias(this, "to_s", "message");
+}, 0)
+}).call(opal.top, opal);
+opal.FILE = '/core/regexp.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Regexp", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$escape', function(string) {
     return string.replace(/([.*+?^=!:${}()|[]\/\])/g, '\$1');
   });
 
-  $defs(this, 'm$new', function($yield, string, options) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }if (options === undefined) { options = undefined; }
+  $opal.defs(this, '$new', function(string, options) {
     return new RegExp(string, options);
   });
 
-  $proto.m$eq$ = function($yield, other) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$eq$ = function(other) {
 
     return other.constructor == RegExp && this.toString() === other.toString();};
 
-  $proto.m$eqq$ = function($yield, obj) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$eqq$ = function(obj) {
 
     return this.test(obj);};
 
-  $proto.m$match$ = function($yield, string) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$match$ = function(string) {
 
     
-      var result        = this.exec(string);
+      var result = this.exec(string);
 
       if (result) {
         var match = new RubyMatch.$allocator();
@@ -4150,13 +4040,13 @@ $klass(this, nil, "Regexp", function() {var $const = this.$const, $proto = this.
       return result ? result.index : nil;
     };
 
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "eql?", "==");
+  $opal.alias(this, "eql?", "==");
 
-  $proto.m$inspect = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$inspect = function() {
 
     return this.toString();};
 
-  $proto.m$match = function($yield, pattern) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$match = function(pattern) {
 
     
       var result  = this.exec(pattern);
@@ -4171,17 +4061,14 @@ $klass(this, nil, "Regexp", function() {var $const = this.$const, $proto = this.
       }
     };
 
-  $proto.m$to_native = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return this;};
-
-  return $proto.m$to_s = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  return def.$to_s = function() {
 
     return this.source;};
-}, 0);
-
-$klass(this, nil, "MatchData", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$aref$ = function($yield, index) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+}, 0)
+}).call(opal.top, opal);
+opal.FILE = '/core/match_data.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "MatchData", function() {var $const = this.$const, def = this.$proto; 
+  def.$aref$ = function(index) {
 
     
       var length = this.$data.length;
@@ -4197,369 +4084,288 @@ $klass(this, nil, "MatchData", function() {var $const = this.$const, $proto = th
       return this.$data[index];
     };
 
-  $proto.m$length = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$length = function() {
 
     return this.$data.length;};
 
-  $proto.m$inspect = function($yield) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$inspect = function() {var _a, _b, _c; 
 
-    return ("#<MatchData " + ((_a=((_b=((_c=this).m$aref$ || $opal.mm('m$aref$')).call(_c, null, 0)).m$inspect || $opal.mm('m$inspect')).call(_b)).m$to_s || $opal.mm('m$to_s')).call(_a) + ">");};
-
-  ((_a=this).m$alias_method || $opal.mm('m$alias_method')).call(_a, null, "size", "length");
-
-  $proto.m$to_a = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return [].slice.call(this.$data, 0);};
-
-  $opal.alias(this, "to_native", "to_a");
-
-  return $proto.m$to_s = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return this.$data[0];};
-}, 0);
-
-$klass(this, nil, "Struct", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$new', function($yield, name, args) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }args = $slice.call(arguments, 2);
-    if ((_a = ((_b=this).m$eq$ || $opal.mm('m$eq$')).call(_b, 
-
-    null, $opal.const_get($const, "Struct"))) !== false && _a !== nil) {} else {return $opal.zuper(arguments.callee, this, [])};if ((_a = ((_b=name).m$is_a$p || $opal.mm('m$is_a$p')).call(_b, null, $opal.const_get($const, "String"))) !== false && _a !== nil) {
-      return ((_a=$opal.const_get($const, "Struct")).m$const_set || $opal.mm('m$const_set')).call(_a, null, name, ((_b=this).m$new || $opal.mm('m$new')).apply(_b, [null].concat(args)))} else {
-
-      ((_a=args).m$unshift || $opal.mm('m$unshift')).call(_a, 
-
-      null, name);return ((_b=$opal.const_get($const, "Class")).m$new || $opal.mm('m$new')).call(_b, (_a=function(_$) {var _a, _b; 
-        return ((_b=args).m$each || $opal.mm('m$each')).call(_b, (_a=function(_$, name) {var _a; if (name === undefined) {name = nil; }return ((_a=this).m$define_struct_attribute || $opal.mm('m$define_struct_attribute')).call(_a, null, name)},_a.$S=this,_a))
-      },_a.$S=this,_a), this);
-    };
-  });
-
-  $defs(this, 'm$define_struct_attribute', function($yield, name) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-    ((_a=((_b=this).m$members || $opal.mm('m$members')).call(_b)).m$lshft$ || $opal.mm('m$lshft$')).call(_a, 
-
-    null, name);((_b=this).m$define_method || $opal.mm('m$define_method')).call(_b, (_a=function(_$) {var _a, _b; 
-      return ((_a=this).m$instance_variable_get || $opal.mm('m$instance_variable_get')).call(_a, null, ("@" + ((_b=name).m$to_s || $opal.mm('m$to_s')).call(_b)))
-    },_a.$S=this,_a), name);
-
-    return ((_b=this).m$define_method || $opal.mm('m$define_method')).call(_b, (_a=function(_$, value) {var _a, _b; if (value === undefined) {value = nil; }
-      return ((_a=this).m$instance_variable_set || $opal.mm('m$instance_variable_set')).call(_a, null, ("@" + ((_b=name).m$to_s || $opal.mm('m$to_s')).call(_b)), 
-      value)},_a.$S=this,_a), ("" + ((_c=name).m$to_s || $opal.mm('m$to_s')).call(_c) + "="));
-  });
-
-  $defs(this, 'm$members', function(
-    $yield) {var _a; this.members == null && (this.members = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }return (_a = this.members, _a !== false && _a != nil ? _a : this.members = [])
-  });
-
-
-
-  ((_a=this).m$include || $opal.mm('m$include')).call(_a, null, $opal.const_get($const, "Enumerable"));$proto.m$initialize = function($yield, args) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }args = $slice.call(arguments, 1);
-
-
-
-    return ((_b=((_c=this).m$members || $opal.mm('m$members')).call(_c)).m$each_with_index || $opal.mm('m$each_with_index')).call(_b, (_a=function(_$, name, index) {var _a, _b; if (name === undefined) {name = nil; }if (index === undefined) {index = nil; }return ((_a=this).m$instance_variable_set || $opal.mm('m$instance_variable_set')).call(_a, null, ("@" + ((_b=name).m$to_s || $opal.mm('m$to_s')).call(_b)), ((_b=args).m$aref$ || $opal.mm('m$aref$')).call(_b, null, index))},_a.$S=this,_a));};
-
-  $proto.m$members = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=((_b=this).m$class || $opal.mm('m$class')).call(_b)).m$members || $opal.mm('m$members')).call(_a);};
-
-  $proto.m$aref$ = function($yield, name) {var _a, _b, _c, _d; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-    if ((_a = ((_b=name).m$is_a$p || $opal.mm('m$is_a$p')).call(_b, null, $opal.const_get($const, "Integer"))) !== false && _a !== nil) {
-      if ((_a = name, _b = ((_c=((_d=this).m$members || $opal.mm('m$members')).call(_d)).m$size || $opal.mm('m$size')).call(_c), typeof(_a) === 'number' ? _a >= _b : _a.m$ge$(null, _b))) {((_b=this).m$raise || $opal.mm('m$raise')).call(_b, null, $opal.const_get($const, "IndexError"), ("offset " + ((_a=name).m$to_s || $opal.mm('m$to_s')).call(_a) + " too large for struct(size:" + ((_a=((_c=((_d=this).m$members || $opal.mm('m$members')).call(_d)).m$size || $opal.mm('m$size')).call(_c)).m$to_s || $opal.mm('m$to_s')).call(_a) + ")"))
-
-      };name = ((_b=((_a=this).m$members || $opal.mm('m$members')).call(_a)).m$aref$ || $opal.mm('m$aref$')).call(_b, null, name);} else {
-
-      if ((_b = ((_a=((_c=this).m$members || $opal.mm('m$members')).call(_c)).m$include$p || $opal.mm('m$include$p')).call(_a, null, ((_c=name).m$to_sym || $opal.mm('m$to_sym')).call(_c))) !== false && _b !== nil) {} else {((_b=this).m$raise || $opal.mm('m$raise')).call(_b, null, $opal.const_get($const, "NameError"), ("no member '" + ((_a=name).m$to_s || $opal.mm('m$to_s')).call(_a) + "' in struct"))
-      }};
-
-    return ((_b=this).m$instance_variable_get || $opal.mm('m$instance_variable_get')).call(_b, null, ("@" + ((_a=name).m$to_s || $opal.mm('m$to_s')).call(_a)));
-  };
-
-  $proto.m$aset$ = function($yield, name, value) {var _a, _b, _c, _d; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 2) { $opal.arg_error($arity, 2); }
-    if ((_a = ((_b=name).m$is_a$p || $opal.mm('m$is_a$p')).call(_b, null, $opal.const_get($const, "Integer"))) !== false && _a !== nil) {
-      if ((_a = name, _b = ((_c=((_d=this).m$members || $opal.mm('m$members')).call(_d)).m$size || $opal.mm('m$size')).call(_c), typeof(_a) === 'number' ? _a >= _b : _a.m$ge$(null, _b))) {((_b=this).m$raise || $opal.mm('m$raise')).call(_b, null, $opal.const_get($const, "IndexError"), ("offset " + ((_a=name).m$to_s || $opal.mm('m$to_s')).call(_a) + " too large for struct(size:" + ((_a=((_c=((_d=this).m$members || $opal.mm('m$members')).call(_d)).m$size || $opal.mm('m$size')).call(_c)).m$to_s || $opal.mm('m$to_s')).call(_a) + ")"))
-
-      };name = ((_b=((_a=this).m$members || $opal.mm('m$members')).call(_a)).m$aref$ || $opal.mm('m$aref$')).call(_b, null, name);} else {
-
-      if ((_b = ((_a=((_c=this).m$members || $opal.mm('m$members')).call(_c)).m$include$p || $opal.mm('m$include$p')).call(_a, null, ((_c=name).m$to_sym || $opal.mm('m$to_sym')).call(_c))) !== false && _b !== nil) {} else {((_b=this).m$raise || $opal.mm('m$raise')).call(_b, null, $opal.const_get($const, "NameError"), ("no member '" + ((_a=name).m$to_s || $opal.mm('m$to_s')).call(_a) + "' in struct"))
-      }};
-
-    return ((_b=this).m$instance_variable_set || $opal.mm('m$instance_variable_set')).call(_b, null, ("@" + ((_a=name).m$to_s || $opal.mm('m$to_s')).call(_a)), 
-    value);};
-
-  $proto.m$each = function($yield) {var _a, _b, _c; try {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); $yield || ($yield = $no_proc);var $context = $yield.$S;
-
-
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "each")};return ((_b=((_c=this).m$members || $opal.mm('m$members')).call(_c)).m$each || $opal.mm('m$each')).call(_b, (_a=function(_$, name) {var _a; if (name === undefined) {name = nil; }return ((_a = $yield.call($context, null, ((_a=this).m$aref$ || $opal.mm('m$aref$')).call(_a, null, name))) === $breaker ? _a.$t() : _a)},_a.$S=this,_a));} catch (e) { if (e === $breaker) { return e.$v; }; throw e;}
-  };
-
-  $proto.m$each_pair = function($yield) {var _a, _b, _c; try {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }var $block_given = ($yield != null); $yield || ($yield = $no_proc);var $context = $yield.$S;
-
-
-    if ($block_given) {} else {return ((_a=this).m$enum_for || $opal.mm('m$enum_for')).call(_a, null, "each_pair")};return ((_b=((_c=this).m$members || $opal.mm('m$members')).call(_c)).m$each || $opal.mm('m$each')).call(_b, (_a=function(_$, name) {var _a; if (name === undefined) {name = nil; }return ((_a = $yield.call($context, null, name, ((_a=this).m$aref$ || $opal.mm('m$aref$')).call(_a, null, name))) === $breaker ? _a.$t() : _a)},_a.$S=this,_a));} catch (e) { if (e === $breaker) { return e.$v; }; throw e;}
-  };
-
-  $proto.m$eql$p = function($yield, other) {var _a, _b, _c, _d; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-
-
-
-    return (_a = ((_b=((_c=this).m$hash || $opal.mm('m$hash')).call(_c)).m$eq$ || $opal.mm('m$eq$')).call(_b, null, ((_c=other).m$hash || $opal.mm('m$hash')).call(_c)), _a !== false && _a != nil ? _a : ((_c=((_d=other).m$each_with_index || $opal.mm('m$each_with_index')).call(_d)).m$all$p || $opal.mm('m$all$p')).call(_c, (_b=function(_$, object, index) {var _a, _b, _c, _d; if (object === undefined) {object = nil; }if (index === undefined) {index = nil; }return ((_a=((_b=this).m$aref$ || $opal.mm('m$aref$')).call(_b, null, ((_c=((_d=this).m$members || $opal.mm('m$members')).call(_d)).m$aref$ || $opal.mm('m$aref$')).call(_c, null, index))).m$eq$ || $opal.mm('m$eq$')).call(_a, null, object)},_b.$S=this,_b)));};
-
-  $proto.m$length = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=((_b=this).m$members || $opal.mm('m$members')).call(_b)).m$length || $opal.mm('m$length')).call(_a);};
+    return ("#<MatchData " + $send(FILE, 12, $send(FILE, 11, $send(FILE, 11, this, null, "$aref$", 0), null, "$inspect"), null, "$to_s") + ">");};
 
   $opal.alias(this, "size", "length");
 
-  $proto.m$to_a = function($yield) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_a = function() {
 
-    return ((_b=((_c=this).m$members || $opal.mm('m$members')).call(_c)).m$map || $opal.mm('m$map')).call(_b, (_a=function(_$, name) {var _a; if (name === undefined) {name = nil; }return ((_a=this).m$aref$ || $opal.mm('m$aref$')).call(_a, null, name)},_a.$S=this,_a));};
+    return $slice.call(this.$data);};
 
-  return $opal.alias(this, "values", "to_a");
-}, 0);
+  return def.$to_s = function() {
 
-$klass(this, nil, "Time", function() {var $const = this.$const, $proto = this.$proto; 
-
-  ((_a=this).m$include || $opal.mm('m$include')).call(_a, null, $opal.const_get($const, "Native"));
-
-  ((_a=this).m$include || $opal.mm('m$include')).call(_a, null, $opal.const_get($const, "Comparable"));$defs(this, 'm$at', function($yield, seconds, frac) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }if (frac === undefined) { frac = 0; }
-    return ((_a=this).m$from_native || $opal.mm('m$from_native')).call(_a, null, new Date(seconds * 1000 + frac))
-  });
-
-  $defs(this, 'm$now', function(
-    $yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }return ((_a=this).m$from_native || $opal.mm('m$from_native')).call(_a, null, new Date())
-  });
-
-  $proto.m$initialize = function($yield, year, month, day, hour, min, sec, utc_offset) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }if (year === undefined) { year = nil; }if (month === undefined) { month = nil; }if (day === undefined) { day = nil; }if (hour === undefined) { hour = nil; }if (min === undefined) { min = nil; }if (sec === undefined) { sec = nil; }if (utc_offset === undefined) { utc_offset = nil; }
+    return this.$data[0];};
+}, 0)
+}).call(opal.top, opal);
+opal.FILE = '/core/time.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Time", function() {var $const = this.$const, def = this.$proto; 
 
 
+  $send(FILE, 4, this, null, "$include", $opal.const_get($const, "Comparable"));$opal.defs(this, '$at', function(seconds, frac) {var result = nil, _a; if (frac === undefined) { frac = 0; }
+    result = 
+    $send(FILE, 6, this, null, "$allocate");result.time = new Date(seconds * 1000 + frac);
 
+    return result;});
 
+  $opal.defs(this, '$now', function(
+    ) {var result = nil, _a; result = 
+    $send(FILE, 12, this, null, "$allocate");result.time = new Date();
 
-    if ((_a = year) !== false && _a !== nil) {return $opal.zuper(arguments.callee, this, [new Date(((_a=year).m$to_native || $opal.mm('m$to_native')).call(_a), ((_a=month).m$to_native || $opal.mm('m$to_native')).call(_a), ((_a=day).m$to_native || $opal.mm('m$to_native')).call(_a), ((_a=hour).m$to_native || $opal.mm('m$to_native')).call(_a), ((_a=min).m$to_native || $opal.mm('m$to_native')).call(_a), ((_a=sec).m$to_native || $opal.mm('m$to_native')).call(_a))])} else {return $opal.zuper(arguments.callee, this, [new Date()])};};
+    return result;});
 
-  $proto.m$plus$ = function($yield, other) {var _a, _b, _c, _d; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$initialize = function() {
 
-    return ((_a=this).m$from_native || $opal.mm('m$from_native')).call(_a, null, new Date((_b = ((_d=this).m$to_f || $opal.mm('m$to_f')).call(_d), _c = ((_d=other).m$to_f || $opal.mm('m$to_f')).call(_d), typeof(_b) === 'number' ? _b + _c : _b.m$plus$(null, _c))));};
+    return this.time = new Date();};
 
-  $proto.m$minus$ = function($yield, other) {var _a, _b, _c, _d; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$plus$ = function(other) {var _a, _b, _c; 
 
-    return ((_a=this).m$from_native || $opal.mm('m$from_native')).call(_a, null, new Date((_b = ((_d=this).m$to_f || $opal.mm('m$to_f')).call(_d), _c = ((_d=other).m$to_f || $opal.mm('m$to_f')).call(_d), typeof(_b) === 'number' ? _b - _c : _b.m$minus$(null, _c))));};
+    
+      var res = $send(FILE, 21, $opal.const_get($const, "Time"), null, "$allocate");
+      res.time = new Date((_a = $send(FILE, 21, this, null, "$to_f"), _b = $send(FILE, 21, other, null, "$to_f"), typeof(_a) === 'number' ? _a + _b : _a.$plus$(_b)));
+      return res;
+    };
 
-  $proto.m$cmp$ = function($yield, other) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$minus$ = function(other) {var _a, _b, _c; 
 
-    return ((_a=((_b=this).m$to_f || $opal.mm('m$to_f')).call(_b)).m$cmp$ || $opal.mm('m$cmp$')).call(_a, null, ((_b=other).m$to_f || $opal.mm('m$to_f')).call(_b));};
+    
+      var res = $send(FILE, 25, $opal.const_get($const, "Time"), null, "$allocate");
+      res.time = new Date((_a = $send(FILE, 25, this, null, "$to_f"), _b = $send(FILE, 25, other, null, "$to_f"), typeof(_a) === 'number' ? _a - _b : _a.$minus$(_b)));
+      return res;
+    };
 
-  $proto.m$asctime = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$cmp$ = function(other) {var _a, _b; 
 
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
+    return $send(FILE, 29, $send(FILE, 29, this, null, "$to_f"), null, "$cmp$", $send(FILE, 29, other, null, "$to_f"));};
 
-  $opal.alias(this, "ctime", "asctime");
+  def.$day = function() {
 
-  $proto.m$day = function($yield) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+    return this.time.getDate();};
 
-    return this['native'].getDate();};
+  def.$eql$p = function(other) {var _a, _b, _c; 
 
-  $proto.m$dst$p = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+    return (_a = $send(FILE, 37, other, null, "$is_a$p", $opal.const_get($const, "Time")), _a !== false && _a != nil ? $send(FILE, 37, $send(FILE, 37, this, null, "$cmp$", other), null, "$zero$p") : _a);};
 
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
+  def.$friday$p = function() {
 
-  $proto.m$eql$p = function($yield, other) {var _a, _b, _c; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+    return this.time.getDay() === 5;};
 
-    return (_a = ((_b=other).m$is_a$p || $opal.mm('m$is_a$p')).call(_b, null, $opal.const_get($const, "Time")), _a !== false && _a != nil ? ((_b=((_c=this).m$cmp$ || $opal.mm('m$cmp$')).call(_c, null, other)).m$zero$p || $opal.mm('m$zero$p')).call(_b) : _a);};
+  def.$hour = function() {
 
-  $proto.m$friday$p = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=((_b=this).m$wday || $opal.mm('m$wday')).call(_b)).m$eq$ || $opal.mm('m$eq$')).call(_a, null, 5);};
-
-  $proto.m$getgm = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
-
-  $proto.m$getlocal = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
-
-  $opal.alias(this, "getutc", "getgm");
-
-  $proto.m$gmt$p = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
-
-  $proto.m$gmt_offset = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
-
-  $proto.m$gmtime = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
-
-  $opal.alias(this, "gmtoff", "gmt_offset");
-
-  $proto.m$hour = function($yield) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return this['native'].getHours();};
-
-  $opal.alias(this, "isdst", "dst?");
-
-  $proto.m$localtime = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
+    return this.time.getHours();};
 
   $opal.alias(this, "mday", "day");
 
-  $proto.m$min = function($yield) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$min = function() {
 
-    return this['native'].getMinutes();};
+    return this.time.getMinutes();};
 
-  $proto.m$mon = function($yield) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$mon = function() {
 
-    return this['native'].getMonth() + 1;};
+    return this.time.getMonth() + 1;};
 
-  $proto.m$monday$p = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$monday$p = function() {
 
-    return ((_a=((_b=this).m$wday || $opal.mm('m$wday')).call(_b)).m$eq$ || $opal.mm('m$eq$')).call(_a, null, 1);};
+    return this.time.getDay() === 1;};
 
   $opal.alias(this, "month", "mon");
 
-  $proto.m$nsec = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$saturday$p = function() {
 
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
+    return this.time.getDay() === 6;};
 
-  $proto.m$round = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$sec = function() {
 
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
+    return this.time.getSeconds();};
 
-  $proto.m$saturday$p = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$sunday$p = function() {
 
-    return ((_a=((_b=this).m$wday || $opal.mm('m$wday')).call(_b)).m$eq$ || $opal.mm('m$eq$')).call(_a, null, 6);};
+    return this.time.getDay() === 0;};
 
-  $proto.m$sec = function($yield) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$thursday$p = function() {
 
-    return this['native'].getSeconds();};
+    return this.time.getDay() === 4;};
 
-  $proto.m$strftime = function($yield, string) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  def.$to_f = function() {
 
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
+    return this.time.getTime() / 1000;};
 
-  $proto.m$subsec = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$to_i = function() {
 
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
+    return parseInt(this.time.getTime() / 1000);};
 
-  $proto.m$sunday$p = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$tuesday$p = function() {
 
-    return ((_a=((_b=this).m$wday || $opal.mm('m$wday')).call(_b)).m$eq$ || $opal.mm('m$eq$')).call(_a, null, 0);};
+    return this.time.getDay() === 2;};
 
-  $proto.m$thursday$p = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$wday = function() {
 
-    return ((_a=((_b=this).m$wday || $opal.mm('m$wday')).call(_b)).m$eq$ || $opal.mm('m$eq$')).call(_a, null, 4);};
+    return this.time.getDay();};
 
-  $proto.m$to_a = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$wednesday$p = function() {
 
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
+    return this.time.getDay() === 3;};
 
-  $proto.m$to_f = function($yield) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  return def.$year = function() {
 
-    return this['native'].getTime() / 1000;};
+    return this.time.getFullYear();};
+}, 0)
+}).call(opal.top, opal);
+opal.FILE = '/core/struct.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Struct", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$new', function(name, args) {var _a, _b; args = $slice.call(arguments, 1);
+    if ((_a = $send(
 
-  $proto.m$to_i = function($yield) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+    FILE, 3, this, null, "$eq$", $opal.const_get($const, "Struct"))) !== false && _a !== nil) {} else {return $opal.zuper(arguments.callee, this, [])};if ((_a = $send(FILE, 5, name, null, "$is_a$p", $opal.const_get($const, "String"))) !== false && _a !== nil) {
+      return $send(FILE, 6, $opal.const_get($const, "Struct"), null, "$const_set", name, $send.apply(null, [FILE, 6, this, null, "$new"].concat(args)))} else {
 
-    return parseInt(this['native'].getTime() / 1000);};
+      $send(
 
-  $proto.m$to_r = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+      FILE, 8, args, null, "$unshift", name);return $send(FILE, 10, $opal.const_get($const, "Class"), (_a=function() {var _a, _b; 
+        return $send(FILE, 11, args, (_a=function(name) {var _a; if (name === undefined) {name = nil; }return $send(FILE, 11, this, null, "$define_struct_attribute", name)},_a.$S=this, _a), "$each")
+      },_a.$S=this, _a), "$new", this);
+    };
+  });
 
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
+  $opal.defs(this, '$define_struct_attribute', function(name) {var _a, _b, _c; 
+    $send(
 
-  $proto.m$to_s = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+    FILE, 17, $send(FILE, 17, this, null, "$members"), null, "$lshft$", name);$send(FILE, 19, this, (_a=function() {var _a, _b; 
+      return $send(FILE, 20, this, null, "$instance_variable_get", ("@" + $send(FILE, 20, name, null, "$to_s")))
+    },_a.$S=this, _a), "$define_method", name);
 
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
+    return $send(FILE, 23, this, (_a=function(value) {var _a, _b; if (value === undefined) {value = nil; }
+      return $send(FILE, 24, this, null, "$instance_variable_set", ("@" + $send(FILE, 24, name, null, "$to_s")), 
+      value)},_a.$S=this, _a), "$define_method", ("" + $send(FILE, 25, name, null, "$to_s") + "="));
+  });
 
-  $proto.m$tuesday$p = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  $opal.defs(this, '$members', function(
+    ) {var _a; this.members == null && (this.members = nil);return (_a = this.members, _a !== false && _a != nil ? _a : this.members = [])
+  });
 
-    return ((_a=((_b=this).m$wday || $opal.mm('m$wday')).call(_b)).m$eq$ || $opal.mm('m$eq$')).call(_a, null, 2);};
 
-  $opal.alias(this, "tv_nsec", "nsec");
 
-  $opal.alias(this, "tv_sec", "to_i");
+  $send(FILE, 34, this, null, "$include", $opal.const_get($const, "Enumerable"));def.$initialize = function(args) {var _a, _b, _c; args = $slice.call(arguments, 0);
 
-  $proto.m$tv_usec = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
 
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
 
-  $opal.alias(this, "usec", "tv_usec");
+    return $send(FILE, 35, $send(FILE, 35, this, null, "$members"), (_a=function(name, index) {var _a, _b; if (name === undefined) {name = nil; }if (index === undefined) {index = nil; }return $send(FILE, 36, this, null, "$instance_variable_set", ("@" + $send(FILE, 38, name, null, "$to_s")), $send(FILE, 36, args, null, "$aref$", index))},_a.$S=this, _a), "$each_with_index");};
 
-  $opal.alias(this, "utc", "gmtime");
+  def.$members = function() {var _a, _b; 
 
-  $opal.alias(this, "utc?", "gmt?");
+    return $send(FILE, 41, $send(FILE, 41, this, null, "$class"), null, "$members");};
 
-  $opal.alias(this, "utc_offset", "gmt_offset");
+  def.$aref$ = function(name) {var _a, _b, _c, _d; 
+    if ((_a = $send(FILE, 45, name, null, "$is_a$p", $opal.const_get($const, "Integer"))) !== false && _a !== nil) {
+      if ((_a = name, _b = $send(FILE, 46, $send(FILE, 46, this, null, "$members"), null, "$size"), typeof(_a) === 'number' ? _a >= _b : _a.$ge$(_b))) {$send(FILE, 46, this, null, "$raise", $opal.const_get($const, "IndexError"), ("offset " + $send(FILE, 46, name, null, "$to_s") + " too large for struct(size:" + $send(FILE, 46, $send(FILE, 46, $send(FILE, 46, this, null, "$members"), null, "$size"), null, "$to_s") + ")"))
 
-  $proto.m$wday = function($yield) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+      };name = $send(FILE, 48, $send(FILE, 48, this, null, "$members"), null, "$aref$", name);} else {
 
-    return this['native'].getDay();};
+      if ((_b = $send(FILE, 50, $send(FILE, 50, this, null, "$members"), null, "$include$p", $send(FILE, 50, name, null, "$to_sym"))) !== false && _b !== nil) {} else {$send(FILE, 50, this, null, "$raise", $opal.const_get($const, "NameError"), ("no member '" + $send(FILE, 50, name, null, "$to_s") + "' in struct"))
+      }};
 
-  $proto.m$wednesday$p = function($yield) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=((_b=this).m$wday || $opal.mm('m$wday')).call(_b)).m$eq$ || $opal.mm('m$eq$')).call(_a, null, 3);};
-
-  $proto.m$yday = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
-
-  $proto.m$year = function($yield) {this['native'] == null && (this['native'] = nil);var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return this['native'].getFullYear();};
-
-  return $proto.m$zone = function($yield) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
-
-    return ((_a=this).m$raise || $opal.mm('m$raise')).call(_a, null, $opal.const_get($const, "NotImplementedError"));};
-}, 0);
-
-$klass(this, nil, "IO", function() {var $const = this.$const, $proto = this.$proto; 
-  $proto.m$puts = function($yield, args) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }args = $slice.call(arguments, 1);
-    if ((_a = ((_b=args).m$empty$p || $opal.mm('m$empty$p')).call(_b)) !== false && _a !== nil) {return ((_a=this).m$flush || $opal.mm('m$flush')).call(_a)
-
-    };return ((_b=args).m$each || $opal.mm('m$each')).call(_b, (_a=function(_$, a) {var _a, _b; if (a === undefined) {a = nil; }
-      ((_a=this).m$write || $opal.mm('m$write')).call(_a, null, ((_b=a).m$to_s || $opal.mm('m$to_s')).call(_b));
-
-      return ((_a=this).m$flush || $opal.mm('m$flush')).call(_a);},_a.$S=this,_a));
+    return $send(FILE, 53, this, null, "$instance_variable_get", ("@" + $send(FILE, 53, name, null, "$to_s")));
   };
 
-  $proto.m$print = function($yield, args) {var _a, _b; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }args = $slice.call(arguments, 1);
-    ((_b=args).m$each || $opal.mm('m$each')).call(_b, (_a=function(_$, a) {var _a, _b; if (a === undefined) {a = nil; }return ((_a=this).m$write || $opal.mm('m$write')).call(_a, null, ((_b=a).m$to_s || $opal.mm('m$to_s')).call(_b))},_a.$S=this,_a));
+  def.$aset$ = function(name, value) {var _a, _b, _c, _d; 
+    if ((_a = $send(FILE, 57, name, null, "$is_a$p", $opal.const_get($const, "Integer"))) !== false && _a !== nil) {
+      if ((_a = name, _b = $send(FILE, 58, $send(FILE, 58, this, null, "$members"), null, "$size"), typeof(_a) === 'number' ? _a >= _b : _a.$ge$(_b))) {$send(FILE, 58, this, null, "$raise", $opal.const_get($const, "IndexError"), ("offset " + $send(FILE, 58, name, null, "$to_s") + " too large for struct(size:" + $send(FILE, 58, $send(FILE, 58, $send(FILE, 58, this, null, "$members"), null, "$size"), null, "$to_s") + ")"))
+
+      };name = $send(FILE, 60, $send(FILE, 60, this, null, "$members"), null, "$aref$", name);} else {
+
+      if ((_b = $send(FILE, 62, $send(FILE, 62, this, null, "$members"), null, "$include$p", $send(FILE, 62, name, null, "$to_sym"))) !== false && _b !== nil) {} else {$send(FILE, 62, this, null, "$raise", $opal.const_get($const, "NameError"), ("no member '" + $send(FILE, 62, name, null, "$to_s") + "' in struct"))
+      }};
+
+    return $send(FILE, 65, this, null, "$instance_variable_set", ("@" + $send(FILE, 65, name, null, "$to_s")), 
+    value);};
+
+  def.$each = $TMP_1 = function() {var _a, _b, _c; try {var $yield = $TMP_1.$P;if ($yield) { var $context = $yield.$S, $block_given = true; $TMP_1.$P = null; }else { $yield = $no_proc; }
+
+
+    if ($block_given) {} else {return $send(FILE, 69, this, null, "$enum_for", "each")};return $send(FILE, 71, $send(FILE, 71, this, null, "$members"), (_a=function(name) {var _a; if (name === undefined) {name = nil; }return ((_a = $yield.call($context, $send(FILE, 71, this, null, "$aref$", name))) === $breaker ? _a.$t() : _a)},_a.$S=this, _a), "$each");} catch (e) { if (e === $breaker) { return e.$v; }; throw e;}
+  };
+
+  def.$each_pair = $TMP_2 = function() {var _a, _b, _c; try {var $yield = $TMP_2.$P;if ($yield) { var $context = $yield.$S, $block_given = true; $TMP_2.$P = null; }else { $yield = $no_proc; }
+
+
+    if ($block_given) {} else {return $send(FILE, 75, this, null, "$enum_for", "each_pair")};return $send(FILE, 77, $send(FILE, 77, this, null, "$members"), (_a=function(name) {var _a; if (name === undefined) {name = nil; }return ((_a = $yield.call($context, name, $send(FILE, 77, this, null, "$aref$", name))) === $breaker ? _a.$t() : _a)},_a.$S=this, _a), "$each");} catch (e) { if (e === $breaker) { return e.$v; }; throw e;}
+  };
+
+  def.$eql$p = function(other) {var _a, _b, _c, _d; 
+
+
+
+    return (_a = $send(FILE, 81, $send(FILE, 81, this, null, "$hash"), null, "$eq$", $send(FILE, 81, other, null, "$hash")), _a !== false && _a != nil ? _a : $send(FILE, 81, $send(FILE, 81, other, null, "$each_with_index"), (_b=function(object, index) {var _a, _b, _c, _d; if (object === undefined) {object = nil; }if (index === undefined) {index = nil; }return $send(FILE, 82, $send(FILE, 82, this, null, "$aref$", $send(FILE, 82, $send(FILE, 82, this, null, "$members"), null, "$aref$", index)), null, "$eq$", object)},_b.$S=this, _b), "$all$p"));};
+
+  def.$length = function() {var _a, _b; 
+
+    return $send(FILE, 87, $send(FILE, 87, this, null, "$members"), null, "$length");};
+
+  $opal.alias(this, "size", "length");
+
+  def.$to_a = function() {var _a, _b, _c; 
+
+    return $send(FILE, 93, $send(FILE, 93, this, null, "$members"), (_a=function(name) {var _a; if (name === undefined) {name = nil; }return $send(FILE, 93, this, null, "$aref$", name)},_a.$S=this, _a), "$map");};
+
+  return $opal.alias(this, "values", "to_a");
+}, 0);var $TMP_1, $TMP_2;
+}).call(opal.top, opal);
+opal.FILE = '/core/io.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, _a, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;$klass(this, nil, "IO", function() {var $const = this.$const, def = this.$proto; 
+  def.$puts = function(args) {var _a, _b; args = $slice.call(arguments, 0);
+    if ((_a = $send(FILE, 3, args, null, "$empty$p")) !== false && _a !== nil) {return $send(FILE, 3, this, null, "$flush")
+
+    };return $send(FILE, 5, args, (_a=function(a) {var _a, _b; if (a === undefined) {a = nil; }
+      $send(FILE, 6, this, null, "$write", $send(FILE, 6, a, null, "$to_s"));
+
+      return $send(FILE, 8, this, null, "$flush");},_a.$S=this, _a), "$each");
+  };
+
+  def.$print = function(args) {var _a, _b; args = $slice.call(arguments, 0);
+    $send(FILE, 12, args, (_a=function(a) {var _a, _b; if (a === undefined) {a = nil; }return $send(FILE, 12, this, null, "$write", $send(FILE, 12, a, null, "$to_s"))},_a.$S=this, _a), "$each");
 
     return nil;
   };
 
-  $proto.m$write = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  def.$write = function() {
 
     return nil;};
 
-  return $proto.m$flush = function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+  return def.$flush = function() {
 
     return this;};
 }, 0);
 
-$const.STDOUT = ($opal.gvars["$stdout"] = ((_a=$opal.const_get($const, "IO")).m$new || $opal.mm('m$new')).call(_a));
+$const.STDOUT = ($opal.gvars["$stdout"] = $send(FILE, 26, $opal.const_get($const, "IO"), null, "$new"));
 
-$klass(((_a = $opal.gvars["$stdout"]) == null ? nil : _a), nil, nil, function() {var $const = this.$const; 
+return $klass(((_a = $opal.gvars["$stdout"]) == null ? nil : _a), nil, nil, function() {var $const = this.$const; 
 
 var stdout_buffer = [];
 
-$defn(this, 'm$write', function($yield, str) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+$opal.defn(this, '$write', function(str) {
   stdout_buffer.push(str);
 
   return nil;
 });
 
-return $defn(this, 'm$flush', function($yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }
+return $opal.defn(this, '$flush', function() {
   console.log(stdout_buffer.join(''));
   stdout_buffer = [];
 
   return nil;
 });}, 2);
+}).call(opal.top, opal);
+opal.FILE = '/core/file.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "File", function() {var $const = this.$const, def = this.$proto; 
 
+  $const.PATH_RE = /^(.+\/(?!$)|\/)?((?:.+?)?(\.[^.]*)?)$/;
 
-$klass(this, nil, "File", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$expand_path', function($yield, path, base) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 1) { $opal.arg_error($arity, -2); }if (base === undefined) { base = undefined; }
+  $opal.defs(this, '$expand_path', function(path, base) {var _a; 
     
       if (!base) {
         if (path.charAt(0) !== '/') {
@@ -4570,7 +4376,7 @@ $klass(this, nil, "File", function() {var $const = this.$const, $proto = this.$p
         }
       }
 
-      path = ((_a=this).m$join || $opal.mm('m$join')).call(_a, null, base, path);
+      path = $send(FILE, 6, this, null, "$join", base, path);
 
       var parts = path.split('/'), result = [], path;
 
@@ -4597,13 +4403,13 @@ $klass(this, nil, "File", function() {var $const = this.$const, $proto = this.$p
     
   });
 
-  $defs(this, 'm$join', function($yield, paths) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }paths = $slice.call(arguments, 1);
+  $opal.defs(this, '$join', function(paths) {paths = $slice.call(arguments, 0);
     return paths.join('/');
   });
 
-  $defs(this, 'm$dirname', function($yield, path) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  $opal.defs(this, '$dirname', function(path) {
     
-      var dirname = PATH_RE.exec(path)[1];
+      var dirname = $opal.const_get($const, "PATH_RE").exec(path)[1];
 
       if (!dirname) {
         return '.';
@@ -4617,9 +4423,9 @@ $klass(this, nil, "File", function() {var $const = this.$const, $proto = this.$p
     
   });
 
-  $defs(this, 'm$extname', function($yield, path) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
+  $opal.defs(this, '$extname', function(path) {
     
-      var extname = PATH_RE.exec(path)[3];
+      var extname = $opal.const_get($const, "PATH_RE").exec(path)[3];
 
       if (!extname || extname === '.') {
         return '';
@@ -4630,32 +4436,33 @@ $klass(this, nil, "File", function() {var $const = this.$const, $proto = this.$p
     
   });
 
-  $defs(this, 'm$basename', function($yield, path, suffix) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 2) { $opal.arg_error($arity, 2); }
+  $opal.defs(this, '$basename', function(path, suffix) {
     return $opal.fs.basename(path, suffix);
   });
 
-  return $defs(this, 'm$exist$p', function($yield, path) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 1) { $opal.arg_error($arity, 1); }
-    return opal.loader.factories[((_a=this).m$expand_path || $opal.mm('m$expand_path')).call(_a, null, path)] ? true : false;
+  return $opal.defs(this, '$exist$p', function(path) {var _a; 
+    return !!FACTORIES[$send(FILE, 26, this, null, "$expand_path", path)];
   });
-}, 0);
-
-return $klass(this, nil, "Dir", function() {var $const = this.$const, $proto = this.$proto; 
-  $defs(this, 'm$getwd', function(
-    $yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }return FS_CWD;
-  });
-
-  $defs(this, 'm$pwd', function(
-    $yield) {var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity !== 0) { $opal.arg_error($arity, 0); }return FS_CWD;
+}, 0)
+}).call(opal.top, opal);
+opal.FILE = '/core/dir.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;return $klass(this, nil, "Dir", function() {var $const = this.$const, def = this.$proto; 
+  $opal.defs(this, '$getwd', function(
+    ) {return FS_CWD;
   });
 
-  return $defs(this, 'm$aref$', function($yield, globs) {var _a; var $arity = arguments.length; if ($arity !== 0) { $arity -= 1; }if ($arity < 0) { $opal.arg_error($arity, -1); }globs = $slice.call(arguments, 1);
+  $opal.defs(this, '$pwd', function(
+    ) {return FS_CWD;
+  });
+
+  return $opal.defs(this, '$aref$', function(globs) {var _a; globs = $slice.call(arguments, 0);
     
       var result = [], files = FACTORIES;
 
       for (var i = 0, ii = globs.length; i < ii; i++) {
         var glob = globs[i];
 
-        var re = fs_glob_to_regexp(((_a=$opal.const_get($const, "File")).m$expand_path || $opal.mm('m$expand_path')).call(_a, null, glob));
+        var re = fs_glob_to_regexp($send(FILE, 11, $opal.const_get($const, "File"), null, "$expand_path", glob));
 
         for (var file in files) {
           if (re.exec(file)) {
@@ -4667,6 +4474,17 @@ return $klass(this, nil, "Dir", function() {var $const = this.$const, $proto = t
       return result;
     
   });
-}, 0);
+}, 0)
+}).call(opal.top, opal);
+opal.FILE = '/core/debug.rb';
+(function($opal) {var FILE = $opal.FILE, nil = $opal.nil, $const = $opal.constants, $breaker = $opal.breaker, $no_proc = $opal.no_proc, $klass = $opal.klass, $const_get = $opal.const_get, $slice = $opal.slice, $send = $opal.send;
+
+
+
+return $klass(this, nil, "Exception", function() {var $const = this.$const, def = this.$proto; 
+  return def.$backtrace = function() {
+
+    return get_debug_backtrace(this);}
+}, 0)
 }).call(opal.top, opal);
 }).call(this);
