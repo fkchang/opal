@@ -103,7 +103,7 @@ module Opal
     end
 
     def s(*parts)
-      sexp = Sexp.new *parts
+      sexp = parts
       sexp.line = @line
       sexp
     end
@@ -487,7 +487,7 @@ module Opal
 
       splat = arglist[1..-1].any? { |a| a.first == :splat }
 
-      if Sexp === arglist.last and arglist.last.first == :block_pass
+      if Array === arglist.last and arglist.last.first == :block_pass
         tmpproc = @scope.new_temp
         arglist.insert 1, s(:js_tmp, process(arglist.pop, :expression))
       elsif iter
@@ -707,7 +707,7 @@ module Opal
       scope_name = nil
 
       # opt args if last arg is sexp
-      opt = args.pop if Sexp === args.last
+      opt = args.pop if Array === args.last
 
       # block name &block
       if args.last.to_s[0] == '&'
@@ -1482,7 +1482,7 @@ module Opal
       }.join ', '
       err = "true" if err.empty?
 
-      if Sexp === args.last and [:lasgn, :iasgn].include? args.last.first
+      if Array === args.last and [:lasgn, :iasgn].include? args.last.first
         val = args.last
         val[2] = s(:js_tmp, "$err")
         val = process(val, :expression) + ";"
