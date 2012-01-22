@@ -502,22 +502,10 @@ module Opal
 
       recv_code = recv.nil? ? 'this' : process(recv, :receiver)
 
-      #if @debug
-        #if iter
-          #debugblock = "(#{tmpproc}=#{block},#{tmpproc}.$S=this, #{tmpproc})"
-        #elsif block
-          #debugblock = block
-        #else
-          #debugblock = 'null'
-        #end
-        #arglist.insert 1, s(:js_tmp, recv_code), s(:js_tmp, debugblock), s(:js_tmp, mid.inspect)
-      #end
-
-
       @scope.queue_temp tmprecv if tmprecv
       @scope.queue_temp tmpproc if tmpproc
 
-      if @debug
+      if @debug && false
         arglist.insert 1, s(:js_tmp, recv_code), s(:js_tmp, mid.inspect)
         args = process arglist, :expression
         splat ? "$opal.send.apply(null, #{args})" : "$opal.send(#{args})"
@@ -526,27 +514,6 @@ module Opal
         dispatch = tmprecv ? "(#{tmprecv}=#{recv_code}).#{mid}" : "#{recv_code}.#{mid}"
         splat ? "#{dispatch}.apply(#{tmprecv}, #{args})" : "#{dispatch}(#{args})"
       end
-
-      #if @debug
-        #splat ? "$send.apply(null, #{args})" : "$send(#{args})"
-      #elsif @method_missing
-        #pre = "((#{tmprecv}=#{recv_code}).#{mid} || $opal.mm('#{mid}'))."
-        #splat ? "#{pre}apply(#{tmprecv}, #{args})" : "#{pre}call(#{tmprecv}#{args == '' ? '' : ", #{args}"})"
-      #else
-        #if block
-          #if iter
-            #call = "(#{tmpproc}=(#{tmprecv}=#{recv_code}).#{mid}, (#{tmpproc}.$P = #{block}).$S = this, #{tmpproc})"
-          #else # block_pass
-            #call = "(#{tmpproc}=(#{tmprecv}=#{recv_code}).#{mid}, #{tmpproc}.$P = #{block}, #{tmpproc})"
-          #end
-
-          #args = ", #{args}" unless args.empty?
-          #splat ? "#{call}.apply(#{tmprecv}#{args})" : "#{call}.call(#{tmprecv}#{args})"
-
-        #else
-          #splat ? "(#{tmprecv}=#{recv_code}).#{mid}.apply(#{tmprecv}, #{args})" : "#{recv_code}.#{mid}(#{args})"
-        #end
-      #end
     end
 
     # s(:arglist, [arg [, arg ..]])
