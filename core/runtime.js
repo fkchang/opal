@@ -552,6 +552,12 @@ function find_lib(id) {
   // require 'foo' to load 'opal/foo'
   if (FACTORIES[path = '/opal/' + id + '.rb']) return path;
 
+  // require 'foo.rb'
+  // require 'foo/bar.rb'
+
+  // require 'foo.rb' to load 'opal/foo.rb'
+  if (FACTORIES[path = '/opal/' + id]) return path;
+
   // require '/foo'
   // require '/foo/bar'
   if (FACTORIES[path = id + '.rb']) return path;

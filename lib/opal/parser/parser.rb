@@ -95,11 +95,11 @@ module Opal
       # $send is needed in debug mode
       @helpers[:send] = true if @debug
 
-      begin
+      #begin
         top parser.parse(source, file)
-      rescue Exception => e
-        raise OpalParseError.new("#{e.message} in #{file}:#{parser.line}")
-      end
+      #rescue Exception => e
+        #raise OpalParseError.new("#{e.message} in #{file}:#{parser.line}")
+      #end
     end
 
     def s(*parts)

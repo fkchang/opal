@@ -363,7 +363,7 @@ class String
   alias slice []
 
   def split(pattern = $; || ' ', limit = undefined)
-    `self.split(#{pattern == ' ' ? strip : self}, limit)`
+    `this.split(#{pattern == ' ' ? strip : self}, limit)`
   end
 
   def squeeze(*sets)

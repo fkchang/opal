@@ -26,6 +26,11 @@ namespace :opal do
   task :test do
     sh "bundle exec bin/opal build spec"
   end
+
+  desc "parser"
+  task :parser do
+    sh "bundle exec bin/opal build lib/opal/parser -o opal.parser.js"
+  end
 end
 
 desc "Build dependencies into ."
